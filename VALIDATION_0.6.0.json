@@ -1,0 +1,15 @@
+{
+  "version": "0.6.0-multiprovider-voice",
+  "source_base": "0.5.5-local",
+  "status": "SOURCE_ONLY_UNVERIFIED",
+  "apk_built": false,
+  "android_sdk_available_in_current_environment": false,
+  "gradle_distribution_download": "failed_no_network",
+  "real_device_test": "not_run",
+  "unit_tests": "not_run_in_android_project",
+  "kotlin_syntax_check": "no syntax errors in modified files; full Android dependency and type resolution unavailable",
+  "isolated_agent_approval_kotlin_compile": "passed",
+  "providers_implemented_in_source": ["gemini", "openai_responses", "anthropic_messages", "openai_compatible_chat_completions"],
+  "voice_implemented_in_source": ["android_recognizer_intent", "android_text_to_speech"],
+  "warnings": ["High-risk action confirmation heuristic is incomplete and must be validated", "No complete build or instrumented Android test", "Do not replace working installed 0.5.5 APK before testing 0.6.0 build"]
+}

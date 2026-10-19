@@ -1,7 +1,44 @@
 # AgentBridge
 
-Universal Android agent with shared memory, voice interaction and pluggable LLM providers (Gemini, OpenAI, Claude and compatible APIs).
+Универсальный Android-агент с управлением телефоном, общим контекстом и памятью,
+текстовым и голосовым диалогом, а также поддержкой **Gemini, OpenAI, Claude**
+и OpenAI-совместимых моделей.
 
-Project author and maintainer: [set-ekb](https://github.com/set-ekb).
+**Разработка и сопровождение: [set-ekb](https://github.com/set-ekb).** При использовании
+проекта, пожалуйста, указывайте автора/сопровождающего и ссылку на этот репозиторий.
+Правила распространения исходного кода определяются существующей лицензией [MIT](LICENSE)
+(исходное уведомление об авторских правах Pluginslab сохранено).
 
-Work in progress. Full source tree, project documentation and license are being prepared for publication.
+## Текущий выпуск: 0.8.0-local · REVIEW
+
+Это открытая исходная база для развития проекта. Выполнены автоматизированные
+проверки (91 JVM-тест, сборка Debug APK, Android lint: 0 ошибок / 70 предупреждений),
+но полноценная проверка **на телефоне и с реальными API** ещё не завершена.
+Нельзя считать это гарантирующей стабильность release-сборкой.
+
+Проект поддерживает локальную память и перенос контекста между провайдерами,
+диалог в процессе исполнения задач, виджет/уведомления, управление задачами
+(пауза, продолжение, стоп) и общую очередь с учётом квот API.
+
+## Сборка
+
+Необходимы **JDK 17**, **Android SDK 35** и Gradle wrapper из репозитория.
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+```
+
+Устанавливаемый APK в исходный репозиторий не включён. Не удаляйте текущую
+установленную версию с телефона, не проверив подпись и миграцию памяти.
+
+## Документация
+
+- [Обзор 0.8.0](README_0.8.0_RU.md)
+- [Состояние проекта](PROJECT_STATE.md)
+- [Архитектура 0.7](ARCHITECTURE_0.7_RU.md)
+- [Входные требования 0.8](ARCHITECTURE_0.8_INPUT_RU.md)
+- [Участники и признание вклада](CREDITS.md)
+- [Правила работы с кодом](AGENTS.md)
+
+Автоматические GitHub Actions workflow в этой версии **не включены**.
+API-ключи, приватные данные пользователя, keystore и подписанные APK в Git не публикуются.

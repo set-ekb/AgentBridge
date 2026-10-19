@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AgentBridge</string>
+    <string name="accessibility_service_description">Allows remote LLM agents to read the screen and perform taps, swipes, and text input via MCP protocol.</string>
+    <string name="conversation_widget_description">Текущий разговор и управление задачей AgentBridge</string>
+</resources>
