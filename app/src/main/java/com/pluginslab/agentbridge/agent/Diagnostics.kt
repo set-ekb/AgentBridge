@@ -2,7 +2,6 @@ package com.pluginslab.agentbridge.agent
 
 import android.content.Context
 import android.os.Build
-import com.pluginslab.agentbridge.BuildConfig
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
@@ -46,7 +45,7 @@ object Diagnostics {
         init(context)
         val header = JSONObject().apply {
             put("format", "agentbridge-diagnostics-v1")
-            put("version", BuildConfig.VERSION_NAME)
+            put("version", context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown")
             put("sdk", Build.VERSION.SDK_INT)
             put("exported_at", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date()))
             put("privacy", "allowlisted metadata only; no prompts, API keys or tool arguments")
