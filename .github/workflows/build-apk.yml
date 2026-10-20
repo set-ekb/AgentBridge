@@ -2,7 +2,7 @@ name: Build AgentBridge APK
 
 on:
   push:
-    branches: [main, feature/vector-events-082]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
