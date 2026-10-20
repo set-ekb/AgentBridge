@@ -21,6 +21,17 @@
         android:theme="@style/Theme.MaterialComponents.DayNight.DarkActionBar"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- Grant read access only to a user-chosen recipient, never expose internal files. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.diagnosticsfiles"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/diagnostics_share_paths" />
+        </provider>
+
         <!-- Explicit, untrusted lifecycle hints from optional Vector hook module. -->
         <receiver android:name=".agent.HookEventReceiver" android:exported="true" />
         <activity android:name=".agent.CompactConversationActivity" android:exported="false" android:theme="@style/Theme.MaterialComponents.DayNight.Dialog" android:windowSoftInputMode="adjustResize" />
