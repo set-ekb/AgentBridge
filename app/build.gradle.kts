@@ -1,3 +1,9 @@
+// Signing is configured only from a private PKCS#12 keystore.
+// Never check the keystore or its password into the public repository.
+val stableSigningFile = providers.environmentVariable("AGENTBRIDGE_SIGNING_STORE_FILE").orNull
+val stableSigningPassword = providers.environmentVariable("AGENTBRIDGE_SIGNING_PASSWORD").orNull
+val hasStableSigning = !stableSigningFile.isNullOrBlank() && !stableSigningPassword.isNullOrBlank()
+
 plugins {
     id("com.android.application")
     kotlin("android")
@@ -15,13 +21,30 @@ android {
         applicationId = "com.pluginslab.agentbridge"
         minSdk = 29
         targetSdk = 34
-        versionCode = 32
-        versionName = "0.8.2-local"
+        versionCode = 33
+        versionName = "0.8.3-local"
+    }
+
+    signingConfigs {
+        if (hasStableSigning) {
+            create("stable") {
+                storeFile = file(stableSigningFile!!)
+                storePassword = stableSigningPassword
+                keyAlias = "agentbridge"
+                keyPassword = stableSigningPassword
+                storeType = "PKCS12"
+            }
+        }
     }
 
     buildTypes {
-        release {
+        getByName("debug") {
+            // CI only distributes release APKs; local debug builds may remain ephemeral.
+            if (hasStableSigning) signingConfig = signingConfigs.getByName("stable")
+        }
+        getByName("release") {
             isMinifyEnabled = false
+            if (hasStableSigning) signingConfig = signingConfigs.getByName("stable")
         }
     }
 

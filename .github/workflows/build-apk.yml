@@ -4,12 +4,20 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  pull_request:
+    branches: [main]
 
+# Only a trusted main-branch run may read private signing secrets or publish assets.
 permissions:
   contents: read
 
+concurrency:
+  group: agentbridge-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  validate:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -22,19 +30,107 @@ jobs:
       - uses: android-actions/setup-android@v4
       - name: Install Android SDK 35
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Build debug APK
+      - name: Verify Gradle and unit tests (without signing secrets)
         run: bash ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :bridgehooks:assembleDebug
-      - name: Upload installable APK
+
+  build:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      # Smoke tests do not require access to the private signing key.
+      # Ephemeral debug APKs are intentionally NEVER published or recommended for installs.
+      - name: Test and compile (ephemeral debug)
+        run: bash ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :bridgehooks:assembleDebug
+
+      - name: Prepare permanent signing key
+        id: signing
+        if: github.ref == 'refs/heads/main'
+        env:
+          SIGNING_B64: ${{ secrets.AGENTBRIDGE_SIGNING_KEYSTORE_B64 }}
+          SIGNING_PASSWORD: ${{ secrets.AGENTBRIDGE_SIGNING_PASSWORD }}
+          SIGNING_FINGERPRINT: ${{ secrets.AGENTBRIDGE_SIGNING_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_B64" || -z "$SIGNING_PASSWORD" || -z "$SIGNING_FINGERPRINT" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Signed release skipped: configure AGENTBRIDGE_SIGNING_KEYSTORE_B64, AGENTBRIDGE_SIGNING_PASSWORD and AGENTBRIDGE_SIGNING_CERT_SHA256 in repository Actions secrets. See docs/SIGNING_RU.md."
+            exit 0
+          fi
+          KEYSTORE="$RUNNER_TEMP/agentbridge-release.p12"
+          printf '%s' "$SIGNING_B64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          keytool -list -storetype PKCS12 -keystore "$KEYSTORE" -storepass "$SIGNING_PASSWORD" -alias agentbridge > /dev/null
+          ACTUAL_FP=$(keytool -list -v -storetype PKCS12 -keystore "$KEYSTORE" -storepass "$SIGNING_PASSWORD" -alias agentbridge |
+            sed -n 's/^[[:space:]]*SHA256: *//p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')
+          if [[ -z "$ACTUAL_FP" || "$ACTUAL_FP" != "$SIGNING_FINGERPRINT" ]]; then
+            echo "::error::Signing certificate fingerprint mismatch! Refusing key rotation."
+            exit 1
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build both permanently signed release APKs
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.ready == 'true'
+        env:
+          AGENTBRIDGE_SIGNING_STORE_FILE: ${{ runner.temp }}/agentbridge-release.p12
+          AGENTBRIDGE_SIGNING_PASSWORD: ${{ secrets.AGENTBRIDGE_SIGNING_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./gradlew --no-daemon :app:assembleRelease :bridgehooks:assembleRelease
+          mkdir -p release-apks
+          cp app/build/outputs/apk/release/app-release.apk release-apks/AgentBridge.apk
+          cp bridgehooks/build/outputs/apk/release/bridgehooks-release.apk release-apks/AgentBridge-Hooks.apk
+          test -s release-apks/AgentBridge.apk
+          test -s release-apks/AgentBridge-Hooks.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --min-sdk-version 29 release-apks/AgentBridge.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --min-sdk-version 29 release-apks/AgentBridge-Hooks.apk
+          (cd release-apks && sha256sum AgentBridge.apk AgentBridge-Hooks.apk > SHA256SUMS.txt)
+
+      - name: Upload signed installable APKs
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: AgentBridge-0.8.2-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: AgentBridge-signed-APKs
+          path: release-apks/
           if-no-files-found: error
-          retention-days: 14
-      - name: Upload optional Vector Hooks APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: AgentBridge-Hooks-0.1-debug
-          path: bridgehooks/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      # Versioned release + permanent, non-expiring download URL.
+      - name: Publish GitHub Release
+        if: github.ref == 'refs/heads/main' && steps.signing.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*versionName = "\([0-9][0-9.]*\)-local".*/\1/p' app/build.gradle.kts | head -n1)
+          test -n "$VERSION"
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-apks/AgentBridge.apk release-apks/AgentBridge-Hooks.apk release-apks/SHA256SUMS.txt --clobber
+            gh release edit "$TAG" --latest
+          else
+            gh release create "$TAG" release-apks/AgentBridge.apk release-apks/AgentBridge-Hooks.apk release-apks/SHA256SUMS.txt \
+              --title "AgentBridge $VERSION" \
+              --notes "Android APKs signed with the repository's permanent private signing key. Back up your previous installation before the one-time signature migration. AgentBridge-Hooks is optional and requires Vector/Xposed." \
+              --latest
+          fi
+
+      - name: Clean up private keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/agentbridge-release.p12"
