@@ -39,18 +39,25 @@ jobs:
         env:
           SIGNING_B64: ${{ secrets.AGENTBRIDGE_SIGNING_KEYSTORE_B64 }}
           SIGNING_PASSWORD: ${{ secrets.AGENTBRIDGE_SIGNING_PASSWORD }}
+          SIGNING_FINGERPRINT: ${{ secrets.AGENTBRIDGE_SIGNING_CERT_SHA256 }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$SIGNING_B64" || -z "$SIGNING_PASSWORD" ]]; then
+          if [[ -z "$SIGNING_B64" || -z "$SIGNING_PASSWORD" || -z "$SIGNING_FINGERPRINT" ]]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Signed release skipped: configure AGENTBRIDGE_SIGNING_KEYSTORE_B64 and AGENTBRIDGE_SIGNING_PASSWORD in repository Actions secrets. See docs/SIGNING_RU.md."
+            echo "::warning::Signed release skipped: configure AGENTBRIDGE_SIGNING_KEYSTORE_B64, AGENTBRIDGE_SIGNING_PASSWORD and AGENTBRIDGE_SIGNING_CERT_SHA256 in repository Actions secrets. See docs/SIGNING_RU.md."
             exit 0
           fi
           KEYSTORE="$RUNNER_TEMP/agentbridge-release.p12"
           printf '%s' "$SIGNING_B64" | base64 --decode > "$KEYSTORE"
           chmod 600 "$KEYSTORE"
           keytool -list -storetype PKCS12 -keystore "$KEYSTORE" -storepass "$SIGNING_PASSWORD" -alias agentbridge > /dev/null
+          ACTUAL_FP=$(keytool -list -v -storetype PKCS12 -keystore "$KEYSTORE" -storepass "$SIGNING_PASSWORD" -alias agentbridge |
+            sed -n 's/^[[:space:]]*SHA256: *//p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')
+          if [[ -z "$ACTUAL_FP" || "$ACTUAL_FP" != "$SIGNING_FINGERPRINT" ]]; then
+            echo "::error::Signing certificate fingerprint mismatch! Refusing key rotation."
+            exit 1
+          fi
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Build both permanently signed release APKs
@@ -67,6 +74,8 @@ jobs:
           cp bridgehooks/build/outputs/apk/release/bridgehooks-release.apk release-apks/AgentBridge-Hooks.apk
           test -s release-apks/AgentBridge.apk
           test -s release-apks/AgentBridge-Hooks.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --min-sdk-version 29 release-apks/AgentBridge.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --min-sdk-version 29 release-apks/AgentBridge-Hooks.apk
           (cd release-apks && sha256sum AgentBridge.apk AgentBridge-Hooks.apk > SHA256SUMS.txt)
 
       - name: Upload signed installable APKs
