@@ -44,6 +44,7 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var memorySearch: EditText
     private lateinit var journal: TextView
     private lateinit var history: TextView
+    private lateinit var appEventHistory: TextView
     private lateinit var provider: Spinner
     private lateinit var key: EditText
     private lateinit var keyStatus: TextView
@@ -226,6 +227,10 @@ open class PanelActivity: AppCompatActivity() {
         }
         page {
             label("Журнал",27,white)
+            label("События интерфейса Android / Vector",17,white)
+            appEventHistory=label("Нажмите «Обновить события».",12).apply { setTextIsSelectable(true) }
+            button("Обновить события") { refreshAppEvents() }
+            label("Vector-подсказки не подтверждают выполнение действия. Агент дополнительно проверяет экран.",12)
             button("Экспорт диагностики (.jsonl)") { exportDiagnostics.launch("agentbridge-diagnostics.jsonl") }
             label("Экспортируются только технические события без содержимого экранов, запросов и API-ключей. Проверьте файл перед передачей.",12)
             button("История задач · показать / скрыть") { checkpoints.visibility=if(checkpoints.visibility==View.VISIBLE) View.GONE else View.VISIBLE;refreshTasks() }
@@ -470,6 +475,14 @@ open class PanelActivity: AppCompatActivity() {
                 withContext(Dispatchers.IO) { store.delete(entry.id) };dialog.dismiss();refreshMemory()
             } }
         };dialog.show()
+    }
+    private fun refreshAppEvents() {
+        if (!::appEventHistory.isInitialized) return
+        val events=AppEventTimeline.recent(limit=25)
+        appEventHistory.text=if(events.isEmpty()) "Пока нет событий. Переключитесь в другое приложение и обратно."
+        else events.joinToString("\n") { e ->
+            "#${e.id} · ${e.source} · ${e.type}\n${e.packageName}${if(e.activity.isNotBlank()) " / "+e.activity else ""}"
+        }
     }
     private fun refreshHistory() { if(!::history.isInitialized) return;action { history.text=withContext(Dispatchers.IO) { store.events() } } }
     override fun onResume() { super.onResume();if(::start.isInitialized) render(AgentRuntime.state.value) }
