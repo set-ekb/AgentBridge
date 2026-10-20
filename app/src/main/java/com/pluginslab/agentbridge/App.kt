@@ -22,6 +22,7 @@ class App : Application() {
     private fun installCrashHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            com.pluginslab.agentbridge.agent.Diagnostics.record("app_error", "uncaught", detail = throwable.javaClass.simpleName, source = "bridge")
             try {
                 val dir = File(Environment.getExternalStorageDirectory(), "Download")
                 dir.mkdirs()
