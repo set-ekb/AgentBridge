@@ -15,8 +15,8 @@ android {
         applicationId = "com.pluginslab.agentbridge"
         minSdk = 29
         targetSdk = 34
-        versionCode = 30
-        versionName = "0.8.0-local"
+        versionCode = 31
+        versionName = "0.8.1-local"
     }
 
     buildTypes {
