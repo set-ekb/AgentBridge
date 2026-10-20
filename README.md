@@ -40,7 +40,15 @@
 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-Устанавливаемый APK в исходный репозиторий не включён. Подписанные сборки публикуются\nв [GitHub Releases](https://github.com/set-ekb/AgentBridge/releases/latest),\nкогда владелец настроит постоянный закрытый ключ в GitHub Actions.\n\n**Постоянная ссылка на APK после первого подписанного выпуска:**\nhttps://github.com/set-ekb/AgentBridge/releases/latest/download/AgentBridge.apk\n\n**Настройка подписи и миграция с прежних debug APK:** [docs/SIGNING_RU.md](docs/SIGNING_RU.md).\nНе удаляйте текущую версию до экспорта памяти и резервного копирования настроек.
+Устанавливаемый APK в исходный репозиторий не включён. Подписанные сборки публикуются
+в [GitHub Releases](https://github.com/set-ekb/AgentBridge/releases/latest),
+когда владелец настроит постоянный закрытый ключ в GitHub Actions.
+
+**Постоянная ссылка на APK после первого подписанного выпуска:**
+https://github.com/set-ekb/AgentBridge/releases/latest/download/AgentBridge.apk
+
+**Настройка подписи и миграция с прежних debug APK:** [docs/SIGNING_RU.md](docs/SIGNING_RU.md).
+Не удаляйте текущую версию до экспорта памяти и резервного копирования настроек.
 
 ## Отказ от гарантий и ответственности
 
@@ -68,5 +76,5 @@ API-ключей и возможных расходах на сторонние 
 - [Участники и признание вклада](CREDITS.md)
 - [Правила работы с кодом](AGENTS.md)
 
-Автоматические GitHub Actions workflow в этой версии **не включены**.
-API-ключи, приватные данные пользователя, keystore и подписанные APK в Git не публикуются.
+GitHub Actions выполняет тесты и публикует только APK, подписанные постоянным закрытым ключом из GitHub Secrets. Временные debug-подписи не публикуются.
+API-ключи, приватные данные пользователя и keystore в Git не публикуются.
