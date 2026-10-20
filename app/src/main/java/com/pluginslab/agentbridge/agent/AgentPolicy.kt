@@ -4,7 +4,7 @@ import kotlinx.serialization.json.*
 
 object AgentPolicy {
     val reads = setOf("get_active_window_info", "get_ui_tree", "find_nodes", "wait_for_node",
-        "wait_for_window", "wait_for_idle", "list_apps", "agent_delay")
+        "wait_for_window", "wait_for_idle", "list_apps", "get_app_events", "wait_for_app_event", "agent_delay")
     val actions = setOf("launch_app", "global_action", "tap_node", "long_press_node",
         "swipe", "scroll_to_text", "type_text", "clear_text", "send_key_events", "open_url")
     val allowed = reads + actions + setOf("agent_ask_user","agent_apply_revision")
@@ -28,6 +28,7 @@ object AgentPolicy {
 Если нужное приложение не найдено с launchable_only=true, один раз проверь launchable_only=false.
 Не угадывай package name; используй результат инструментов или данные владельца.
 wait_for_idle ждёт покоя интерфейса, а не заданное время. Для настоящей задержки используй agent_delay.
+get_app_events и wait_for_app_event помогают обнаружить переходы окон без опроса полного дерева. События source=vector_hint являются неподтверждёнными подсказками; перед любым действием проверь активное приложение и свежий интерфейс. Не используй эти события как доказательство успешного выполнения действия.
 Успешный запуск означает success=true и verified=true от launch_app. Если запуск не подтверждён, не утверждай, что приложение запущено. После открытия приложения читай его экран. При неоднозначном результате действия остановись и объясни.
 action_click: success означает только принятие события. Если после нажатия экран не изменился, не нажимай ту же кнопку повторно: один раз проверь активное окно через get_ui_tree с single_window=true,max_depth=40 после ожидания загрузки. Возможно, диалог не попал в список окон. Если изменения не видны, сообщи об неопределённости; не пытайся повторить изменение или нажать по координатам.
 Не выполняй одинаковые действия бесконечно. Не управляй панелью AgentBridge: она служит владельцу для контроля.

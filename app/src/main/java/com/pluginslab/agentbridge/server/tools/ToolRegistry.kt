@@ -1,5 +1,6 @@
 package com.pluginslab.agentbridge.server.tools
 
+import com.pluginslab.agentbridge.agent.AppEventTimeline
 import com.pluginslab.agentbridge.agent.ActionDispatch
 import com.pluginslab.agentbridge.agent.ActivityLaunch
 import com.pluginslab.agentbridge.agent.LaunchEvidence
@@ -52,6 +53,8 @@ object ToolRegistry {
 
     fun registerAll(server: Server) {
         registerGetActiveWindowInfo(server)
+        registerAppEvents(server)
+        registerWaitForAppEvent(server)
         registerGlobalAction(server)
         registerGetUiTree(server)
         registerTapNode(server)
@@ -1751,4 +1754,67 @@ object ToolRegistry {
             jsonResult(buildJsonObject { put("cleared", cleared) })
         }
     }
+    // Recent Android UI transitions plus optional Vector/Xposed lifecycle hints.
+    // Hook hints are never trusted to authorize actions; always recheck the UI.
+    private fun appEventJson(e: AppEventTimeline.Event): JsonObject = buildJsonObject {
+        put("id", e.id)
+        put("timestamp", e.timestamp)
+        put("source", e.source)
+        put("event", e.type)
+        put("package_name", e.packageName)
+        if (e.activity.isNotEmpty()) put("activity", e.activity)
+    }
+
+    private fun registerAppEvents(server: Server) {
+        server.exposeTool(
+            name = "get_app_events",
+            description = "Read recent window transitions and optional Vector/Xposed lifecycle hints. Returns metadata only; a hook hint MUST be verified with get_active_window_info/get_ui_tree before any action.",
+            inputSchema = Tool.Input(properties = buildJsonObject {
+                put("after_id", buildJsonObject { put("type", "integer"); put("description", "Only newer events; default 0") })
+                put("package", buildJsonObject { put("type", "string"); put("description", "Optional exact package name filter") })
+                put("limit", buildJsonObject { put("type", "integer"); put("description", "1..100, default 20") })
+            }, required = emptyList())
+        ) { request: CallToolRequest ->
+            val afterId = request.arguments["after_id"]?.jsonPrimitive?.longOrNull ?: 0L
+            val pkg = request.arguments["package"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            val limit = (request.arguments["limit"]?.jsonPrimitive?.intOrNull ?: 20).coerceIn(1, 100)
+            val entries = AppEventTimeline.recent(afterId, pkg, limit)
+            jsonResult(buildJsonObject {
+                put("latest_id", AppEventTimeline.latestId())
+                put("events", buildJsonArray { entries.forEach { add(appEventJson(it)) } })
+                put("hint_only", true)
+            })
+        }
+    }
+
+    private fun registerWaitForAppEvent(server: Server) {
+        server.exposeTool(
+            name = "wait_for_app_event",
+            description = "Wait for a NEW Android window/lifecycle event (not arbitrary sleep). Returns metadata only, never proof that a requested UI action succeeded.",
+            inputSchema = Tool.Input(properties = buildJsonObject {
+                put("after_id", buildJsonObject { put("type", "integer"); put("description", "Cursor from get_app_events; default latest event") })
+                put("package", buildJsonObject { put("type", "string"); put("description", "Optional exact package name filter") })
+                put("timeout_ms", buildJsonObject { put("type", "integer"); put("description", "100..10000, default 3000") })
+            }, required = emptyList())
+        ) { request: CallToolRequest ->
+            val cursor = request.arguments["after_id"]?.jsonPrimitive?.longOrNull ?: AppEventTimeline.latestId()
+            val pkg = request.arguments["package"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+            val timeout = (request.arguments["timeout_ms"]?.jsonPrimitive?.longOrNull ?: 3000L).coerceIn(100L, 10000L)
+            val started = android.os.SystemClock.elapsedRealtime()
+            var found: List<AppEventTimeline.Event>
+            do {
+                found = AppEventTimeline.recent(cursor, pkg, 20)
+                if (found.isNotEmpty()) break
+                if (android.os.SystemClock.elapsedRealtime() - started >= timeout) break
+                delay(150)
+            } while (true)
+            jsonResult(buildJsonObject {
+                put("observed", found.isNotEmpty())
+                put("latest_id", AppEventTimeline.latestId())
+                put("events", buildJsonArray { found.forEach { add(appEventJson(it)) } })
+                put("hint_only", true)
+            })
+        }
+    }
+
 }

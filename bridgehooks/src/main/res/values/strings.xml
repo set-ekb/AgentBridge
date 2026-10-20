@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="module_description">Read-only activity lifecycle events for AgentBridge. Enable only selected application scopes in Vector.</string>
+</resources>
