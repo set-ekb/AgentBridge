@@ -20,4 +20,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "AndroidAgentBridge"
-include(":app")
+include(":app", ":bridgehooks")
