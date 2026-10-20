@@ -91,6 +91,7 @@ object AgentRuntime {
     fun cancel() { requestedTerminal="CANCELLED";gate.cancel();routingHold=false;job?.cancel();VoiceOutput.stop() }
 
     fun phase(text: String) {
+        Diagnostics.record("phase", when { text.contains("429") -> "quota_429"; text.contains("503") -> "service_503"; text.startsWith("Ожидание") -> "model_wait"; text.startsWith("Старт") -> "startup"; else -> "state_change" })
         mutable.update { it.copy(phase=text) }
         if((text.contains("HTTP 429") || text.contains("WAIT_QUOTA")) && checkpoint?.status!="WAIT_QUOTA") checkpoint?.let {
             saveCheckpoint(it.copy(status="WAIT_QUOTA",updated=System.currentTimeMillis()))
@@ -133,6 +134,8 @@ object AgentRuntime {
     }
     @Synchronized fun start(context: Context, scope: CoroutineScope, onFinish: () -> Unit, resume: TaskCheckpoint?=null): Boolean {
         if (job?.isActive == true) return false
+        Diagnostics.init(context)
+        Diagnostics.record("task_start")
         mutable.value = State(running = true, phase = "Подготовка", started = SystemClock.elapsedRealtime())
         job = scope.launch(start = CoroutineStart.LAZY) {
             var apiKey = ""
