@@ -94,15 +94,26 @@ open class PanelActivity: AppCompatActivity() {
             exportText="";feedback("Память экспортирована")
         } else exportText=""
     }
+    private val exportDiagnostics = registerForActivityResult(ActivityResultContracts.CreateDocument("application/x-ndjson")) { uri ->
+        if (uri != null) action {
+            withContext(Dispatchers.IO) {
+                val text = Diagnostics.export(applicationContext)
+                contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    ?: error("Не удалось сохранить диагностику")
+            }
+            feedback("Диагностика экспортирована")
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide();window.statusBarColor=navy;window.navigationBarColor=navy
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         savedInstanceStateTask=savedInstanceState?.getString("draft")
+        Diagnostics.init(this)
         prefs=AgentPrefs(this)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
         column=root
-        label("AGENT / BRIDGE  0.8",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
+        label("AGENT / BRIDGE  0.8.1",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         modelLabel=label("",11)
         status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
@@ -215,6 +226,8 @@ open class PanelActivity: AppCompatActivity() {
         }
         page {
             label("Журнал",27,white)
+            button("Экспорт диагностики (.jsonl)") { exportDiagnostics.launch("agentbridge-diagnostics.jsonl") }
+            label("Экспортируются только технические события без содержимого экранов, запросов и API-ключей. Проверьте файл перед передачей.",12)
             button("История задач · показать / скрыть") { checkpoints.visibility=if(checkpoints.visibility==View.VISIBLE) View.GONE else View.VISIBLE;refreshTasks() }
             checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=View.GONE };column.addView(checkpoints)
             label("Сохранённые технические события · без текстов экранов",13)
