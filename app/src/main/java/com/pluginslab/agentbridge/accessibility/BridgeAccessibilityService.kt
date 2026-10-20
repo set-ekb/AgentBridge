@@ -3,6 +3,7 @@ package com.pluginslab.agentbridge.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import com.pluginslab.agentbridge.agent.AppEventTimeline
 
 class BridgeAccessibilityService : AccessibilityService() {
 
@@ -40,6 +41,11 @@ class BridgeAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         lastEventTime = System.currentTimeMillis()
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event?.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            val pkg = event.packageName?.toString().orEmpty()
+            val kind = if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) "windows" else "window"
+            AppEventTimeline.append("accessibility", kind, pkg, event.className?.toString().orEmpty())
+        }
         if (event?.eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
             val pkg = event.packageName?.toString() ?: "unknown"
             val texts = event.text?.mapNotNull { it?.toString() } ?: emptyList()
