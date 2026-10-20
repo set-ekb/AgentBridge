@@ -90,6 +90,18 @@ object Diagnostics {
         }.getOrDefault(emptyList())
     }
 
+    /** Highlight hook states even if recent Accessibility events filled the UI timeline. */
+    @Synchronized fun recentHooks(limit: Int = 20): List<String> {
+        val context = app ?: return emptyList()
+        return runCatching {
+            val file = File(context.filesDir, FILE_NAME)
+            if (!file.exists()) emptyList() else file.readLines()
+                .filter { line ->
+                    runCatching { JSONObject(line).optString("event").startsWith("hook_") }.getOrDefault(false)
+                }.takeLast(limit.coerceIn(1, 50))
+        }.getOrDefault(emptyList())
+    }
+
     @Synchronized fun export(context: Context): String {
         init(context)
         val header = JSONObject().apply {
