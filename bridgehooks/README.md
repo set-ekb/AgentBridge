@@ -1,17 +1,23 @@
-# AgentBridge Hooks 0.1 / Vector 2.2
+# AgentBridge Hooks 0.3 / Vector 2.2
 
 Optional modern libxposed API 102 module. It observes Activity onResume/onPause
 in applications explicitly enabled by the user in Vector; it never modifies
 arguments or return values, hooks system_server or reads UI text.
 
 ## Installation and scope
-1. Install AgentBridge 0.8.2 (main APK) first.
+1. Install AgentBridge 0.8.4 (main APK) first.
 2. Install AgentBridge Hooks APK separately.
 3. Enable *AgentBridge Hooks* in Vector. Select only chosen app(s) in scope.
    Default suggested scope: Android Settings (com.android.settings).
 4. Restart the chosen app if required.
 5. In AgentBridge use tools get_app_events / wait_for_app_event to see read-only
    lifecycle hints labelled source=vector_hint.
+
+The module emits Vector/Xposed logs with tag `AgentBridgeHooks` at each stage:
+`module_loaded`, `package_ready`, `hooks_installed`, `first_callback`,
+`hook_install_failed`, `dispatch_failed`. On the first Activity callback
+it also sends a coarse `hook_active` stage to the main app's persistent JSONL.
+See [diagnostics guide](../docs/DIAGNOSTICS_084_RU.md).
 
 The hook sends explicit broadcasts to AgentBridge with only package name,
 Activity class and resumed/paused state. The receiver is exported because the

@@ -45,6 +45,7 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var journal: TextView
     private lateinit var history: TextView
     private lateinit var appEventHistory: TextView
+    private lateinit var hookDiagnosticHistory: TextView
     private lateinit var provider: Spinner
     private lateinit var key: EditText
     private lateinit var keyStatus: TextView
@@ -114,7 +115,7 @@ open class PanelActivity: AppCompatActivity() {
         prefs=AgentPrefs(this)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
         column=root
-        label("AGENT / BRIDGE  0.8.3",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
+        label("AGENT / BRIDGE  0.8.4",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         modelLabel=label("",11)
         status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
@@ -227,9 +228,13 @@ open class PanelActivity: AppCompatActivity() {
         }
         page {
             label("Журнал",27,white)
+            label("Проверка Vector Hooks",17,white)
+            hookDiagnosticHistory=label("Обновите диагностику хуков.",12).apply { setTextIsSelectable(true) }
+            button("Обновить диагностику хуков") { refreshHookDiagnostics() }
+            label("hook_status=callback_active означает получение сигнала из модуля (или тестового broadcast). При отсутствии сигнала проверьте логи AgentBridgeHooks в Vector: module_loaded, package_ready, hooks_installed, hook_install_failed.",12)
             label("События интерфейса Android / Vector",17,white)
             appEventHistory=label("Нажмите «Обновить события».",12).apply { setTextIsSelectable(true) }
-            button("Обновить события") { refreshAppEvents() }
+            button("Обновить события") { refreshAppEvents();refreshHookDiagnostics() }
             label("Vector-подсказки не подтверждают выполнение действия. Агент дополнительно проверяет экран.",12)
             button("Экспорт диагностики (.jsonl)") { exportDiagnostics.launch("agentbridge-diagnostics.jsonl") }
             label("Экспортируются только технические события без содержимого экранов, запросов и API-ключей. Проверьте файл перед передачей.",12)
@@ -253,7 +258,7 @@ open class PanelActivity: AppCompatActivity() {
         if(!intent.getBooleanExtra("compact",false)) root.addView(nav)
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
-        refreshTasks();refreshMemory();refreshHistory()
+        refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics()
     }
     private fun agentPage() {
         val page=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
@@ -475,6 +480,20 @@ open class PanelActivity: AppCompatActivity() {
                 withContext(Dispatchers.IO) { store.delete(entry.id) };dialog.dismiss();refreshMemory()
             } }
         };dialog.show()
+    }
+    private fun refreshHookDiagnostics() {
+        if (!::hookDiagnosticHistory.isInitialized) return
+        val records=Diagnostics.recentHooks(20)
+        hookDiagnosticHistory.text=if(records.isEmpty())
+            "Нет событий от хуков. Откройте Vector → Журналы; проверьте загрузку модуля и Scope."
+        else records.joinToString("\n") { raw ->
+            val obj=runCatching { org.json.JSONObject(raw) }.getOrNull()
+            if(obj==null) "Некорректная запись диагностики"
+            else listOf(
+                obj.optString("event"), obj.optString("status"),
+                obj.optString("package_name"), obj.optString("activity")
+            ).filter { it.isNotBlank() }.joinToString(" · ")
+        }
     }
     private fun refreshAppEvents() {
         if (!::appEventHistory.isInitialized) return

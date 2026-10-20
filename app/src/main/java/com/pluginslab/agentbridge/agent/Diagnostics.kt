@@ -2,6 +2,7 @@ package com.pluginslab.agentbridge.agent
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
@@ -9,48 +10,109 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Local, bounded, privacy-first diagnostic event log.
- * Only allowlisted event types and numeric/status metadata are persisted.
- * No prompts, UI content, request bodies, responses, URLs, keys or tokens.
+ * Unified, persistent, bounded diagnostic journal for AgentBridge.
+ *
+ * Strict allowlist; NEVER persist task text, UI content, API payloads, URLs,
+ * secrets, exception messages, or tool arguments. Vector signals are untrusted.
+ * The same JSONL is displayed in the Journal and exported with a schema header.
  */
 object Diagnostics {
-    private const val MAX_BYTES = 512 * 1024L
-    private const val KEEP_BYTES = 256 * 1024
-    private val allowed = setOf("task_start", "task_finish", "phase", "api_error", "tool_result", "app_error")
+    private const val FILE_NAME = "diagnostics.jsonl"
+    private const val MAX_BYTES = 768 * 1024L
+    private const val KEEP_BYTES = 384 * 1024
+    private val allowed = setOf(
+        "app_start", "task_start", "task_finish", "task_error", "phase",
+        "api_request", "api_response", "api_error",
+        "tool_start", "tool_finish", "tool_error", "tool_result",
+        "ui_event", "hook_status", "hook_event", "hook_error", "app_error"
+    )
+    private val sources = setOf("agent", "provider", "accessibility", "vector_hint", "bridge")
     private var app: Context? = null
 
-    @Synchronized fun init(context: Context) { app = context.applicationContext }
-    @Synchronized fun record(type: String, status: String = "", durationMs: Long = -1L) {
-        if (type !in allowed) return
+    @Synchronized fun init(context: Context) {
+        app = context.applicationContext
+    }
+
+    private fun safe(raw: String, max: Int, pattern: Regex): String =
+        raw.takeIf { it.length <= max && pattern.matches(it) }.orEmpty()
+
+    private val labelPattern = Regex("[a-zA-Z0-9_.:/-]{1,64}")
+    private val packagePattern = Regex("[a-zA-Z0-9_.]{1,180}")
+    private val activityPattern = Regex("[a-zA-Z0-9_.$]{1,220}")
+
+    /** Pure field validation for caller-side use and JVM tests. */
+    internal fun safeLabel(value: String) = safe(value, 64, labelPattern)
+    internal fun safePackage(value: String) = safe(value, 180, packagePattern)
+    internal fun safeActivity(value: String) = safe(value, 220, activityPattern)
+
+    @Synchronized fun record(
+        type: String,
+        status: String = "",
+        durationMs: Long = -1L,
+        source: String = "agent",
+        packageName: String = "",
+        activity: String = "",
+        detail: String = "",
+        step: Int = -1
+    ) {
+        if (type !in allowed || source !in sources) return
         val context = app ?: return
-        val safeStatus = status.take(48).takeIf { it.matches(Regex("[A-Za-z0-9_./:-]*")) }.orEmpty()
         val event = JSONObject().apply {
             put("time", System.currentTimeMillis())
+            put("elapsed_ms", SystemClock.elapsedRealtime())
             put("event", type)
-            put("status", safeStatus)
+            put("source", source)
+            safeLabel(status).takeIf { it.isNotBlank() }?.let { put("status", it) }
+            safePackage(packageName).takeIf { it.isNotBlank() }?.let { put("package_name", it) }
+            safeActivity(activity).takeIf { it.isNotBlank() }?.let { put("activity", it) }
+            safeLabel(detail).takeIf { it.isNotBlank() }?.let { put("detail", it) }
             if (durationMs >= 0) put("duration_ms", durationMs)
+            if (step >= 0) put("step", step)
         }.toString() + "\n"
         runCatching {
-            val file = File(context.filesDir, "diagnostics.jsonl")
-            if (file.length() + event.toByteArray().size > MAX_BYTES) {
-                val bytes = file.readBytes()
-                val tail = bytes.takeLast(KEEP_BYTES).toByteArray().toString(Charsets.UTF_8)
+            val file = File(context.filesDir, FILE_NAME)
+            val bytes = event.toByteArray(Charsets.UTF_8)
+            if (file.length() + bytes.size > MAX_BYTES) {
+                // Retain complete JSON lines only, never fragments after rotation.
+                val tail = file.readBytes().takeLast(KEEP_BYTES).toByteArray().toString(Charsets.UTF_8)
                 file.writeText(tail.substringAfter('\n', ""))
             }
             file.appendText(event)
         }
     }
 
+    /** Recent persisted events (unlike the in-memory UI timeline, survive process restarts). */
+    @Synchronized fun recent(limit: Int = 30): List<String> {
+        val context = app ?: return emptyList()
+        return runCatching {
+            val file = File(context.filesDir, FILE_NAME)
+            if (file.exists()) file.readLines().takeLast(limit.coerceIn(1, 100)) else emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    /** Highlight hook states even if recent Accessibility events filled the UI timeline. */
+    @Synchronized fun recentHooks(limit: Int = 20): List<String> {
+        val context = app ?: return emptyList()
+        return runCatching {
+            val file = File(context.filesDir, FILE_NAME)
+            if (!file.exists()) emptyList() else file.readLines()
+                .filter { line ->
+                    runCatching { JSONObject(line).optString("event").startsWith("hook_") }.getOrDefault(false)
+                }.takeLast(limit.coerceIn(1, 50))
+        }.getOrDefault(emptyList())
+    }
+
     @Synchronized fun export(context: Context): String {
         init(context)
         val header = JSONObject().apply {
-            put("format", "agentbridge-diagnostics-v1")
+            put("format", "agentbridge-diagnostics-v2")
             put("version", context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown")
             put("sdk", Build.VERSION.SDK_INT)
             put("exported_at", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date()))
-            put("privacy", "allowlisted metadata only; no prompts, API keys or tool arguments")
+            put("privacy", "allowlisted metadata only; no prompts, UI text, arguments, keys or payloads")
+            put("vector_hints_trusted", false)
         }
-        val file = File(context.filesDir, "diagnostics.jsonl")
+        val file = File(context.filesDir, FILE_NAME)
         return header.toString() + "\n" + (if (file.exists()) file.readText() else "")
     }
 }

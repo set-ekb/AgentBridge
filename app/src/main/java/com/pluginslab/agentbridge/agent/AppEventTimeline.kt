@@ -20,6 +20,14 @@ object AppEventTimeline {
         if (last != null && last.source == source && last.type == type &&
             last.packageName == packageName && last.activity == activity && now - last.timestamp < 500) return
         ring.addLast(Event(++nextId, now, source, type, packageName, activity))
+        // One logical event: bounded UI ring plus the persistent JSONL export.
+        Diagnostics.record(
+            type = if (source == "vector_hint") "hook_event" else "ui_event",
+            status = type,
+            source = source,
+            packageName = packageName,
+            activity = activity
+        )
         while (ring.size > CAPACITY) ring.removeFirst()
     }
 

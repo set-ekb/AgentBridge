@@ -2,6 +2,7 @@ package com.pluginslab.agentbridge.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.util.Log
+import com.pluginslab.agentbridge.agent.Diagnostics
 import android.view.accessibility.AccessibilityEvent
 import com.pluginslab.agentbridge.agent.AppEventTimeline
 
@@ -36,6 +37,8 @@ class BridgeAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Diagnostics.init(this)
+        Diagnostics.record("phase", "a11y_connected", source = "accessibility")
         Log.i(TAG, "AccessibilityService connected")
     }
 
@@ -58,12 +61,14 @@ class BridgeAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        Diagnostics.record("phase", "a11y_interrupted", source = "accessibility")
         Log.w(TAG, "AccessibilityService interrupted")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        Diagnostics.record("phase", "a11y_destroyed", source = "accessibility")
         Log.i(TAG, "AccessibilityService destroyed")
     }
 }

@@ -13,6 +13,8 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.pluginslab.agentbridge.agent.Diagnostics.init(this)
+        com.pluginslab.agentbridge.agent.Diagnostics.record("app_start", "ready", source = "bridge")
         installCrashHandler()
         registerActivityLifecycleCallbacks(com.pluginslab.agentbridge.agent.ActivityLaunch)
     }
@@ -20,6 +22,7 @@ class App : Application() {
     private fun installCrashHandler() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            com.pluginslab.agentbridge.agent.Diagnostics.record("app_error", "uncaught", detail = throwable.javaClass.simpleName, source = "bridge")
             try {
                 val dir = File(Environment.getExternalStorageDirectory(), "Download")
                 dir.mkdirs()

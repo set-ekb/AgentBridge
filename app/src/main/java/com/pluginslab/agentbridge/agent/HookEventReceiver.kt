@@ -5,17 +5,34 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Optional Vector/Xposed adapter. Broadcasts are untrusted observations,
- * not commands: never accept arguments, UI text, secrets, or task instructions.
+ * The sender runs inside another app UID; signals are UNTRUSTED and cannot
+ * authorize actions. Only allowlisted package/activity/stage metadata persists.
+ * A manually sent test broadcast is intentionally indistinguishable from a hint.
  */
 class HookEventReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        Diagnostics.init(context)
         if (intent.action != ACTION) return
         val pkg = intent.getStringExtra("package").orEmpty()
         val activity = intent.getStringExtra("activity").orEmpty()
         val state = intent.getStringExtra("state").orEmpty()
-        if (state !in setOf("resumed", "paused")) return
-        if (pkg == context.packageName || pkg == "android" || pkg.startsWith("com.android.systemui")) return
+        val stage = intent.getStringExtra("stage").orEmpty()
+        if (Diagnostics.safePackage(pkg).isBlank() ||
+            (activity.isNotEmpty() && Diagnostics.safeActivity(activity).isBlank()) ||
+            pkg == context.packageName || pkg == "android" ||
+            pkg.startsWith("com.android.systemui")) {
+            Diagnostics.record("hook_error", "invalid_payload", source = "bridge")
+            return
+        }
+        if (stage == "hook_active") {
+            Diagnostics.record("hook_status", "callback_active", source = "vector_hint",
+                packageName = pkg, activity = activity)
+            return
+        }
+        if (state !in setOf("resumed", "paused")) {
+            Diagnostics.record("hook_error", "unknown_stage", source = "bridge")
+            return
+        }
         AppEventTimeline.append("vector_hint", state, pkg, activity)
     }
 
