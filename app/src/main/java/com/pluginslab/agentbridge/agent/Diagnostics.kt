@@ -102,6 +102,11 @@ object Diagnostics {
         }.getOrDefault(emptyList())
     }
 
+    /** Local device-time stamp; fixed-width so logs sort correctly by filename. */
+    fun exportFileName(at: Date = Date()): String =
+        "AgentBridge-log-" +
+            SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(at) + ".jsonl"
+
     @Synchronized fun export(context: Context): String {
         init(context)
         val header = JSONObject().apply {

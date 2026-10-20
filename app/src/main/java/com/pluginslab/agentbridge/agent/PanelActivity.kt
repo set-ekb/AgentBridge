@@ -1,6 +1,7 @@
 package com.pluginslab.agentbridge.agent
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -14,10 +15,12 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import com.pluginslab.agentbridge.SettingsActivity
 import com.pluginslab.agentbridge.accessibility.BridgeAccessibilityService
 import kotlinx.coroutines.*
 import java.util.Locale
+import java.io.File
 
 /** Four stable surfaces. Model configuration never shares a scrolling page with the task. */
 open class PanelActivity: AppCompatActivity() {
@@ -115,7 +118,7 @@ open class PanelActivity: AppCompatActivity() {
         prefs=AgentPrefs(this)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
         column=root
-        label("AGENT / BRIDGE  0.8.4",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
+        label("AGENT / BRIDGE  0.8.5",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         modelLabel=label("",11)
         status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
@@ -236,8 +239,9 @@ open class PanelActivity: AppCompatActivity() {
             appEventHistory=label("Нажмите «Обновить события».",12).apply { setTextIsSelectable(true) }
             button("Обновить события") { refreshAppEvents();refreshHookDiagnostics() }
             label("Vector-подсказки не подтверждают выполнение действия. Агент дополнительно проверяет экран.",12)
-            button("Экспорт диагностики (.jsonl)") { exportDiagnostics.launch("agentbridge-diagnostics.jsonl") }
-            label("Экспортируются только технические события без содержимого экранов, запросов и API-ключей. Проверьте файл перед передачей.",12)
+            button("Сохранить журнал с датой (.jsonl)") { exportDiagnostics.launch(Diagnostics.exportFileName()) }
+            button("Поделиться журналом с помощником") { shareDiagnostics() }
+            label("Имя файла включает местные дату и время. «Поделиться» открывает выбор приложения — ничего автоматически не отправляется. Перед передачей проверьте журнал: технические сведения об используемых приложениях тоже могут быть личными.",12)
             button("История задач · показать / скрыть") { checkpoints.visibility=if(checkpoints.visibility==View.VISIBLE) View.GONE else View.VISIBLE;refreshTasks() }
             checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=View.GONE };column.addView(checkpoints)
             label("Сохранённые технические события · без текстов экранов",13)
@@ -481,6 +485,30 @@ open class PanelActivity: AppCompatActivity() {
             } }
         };dialog.show()
     }
+    private fun shareDiagnostics() = action {
+        val file = withContext(Dispatchers.IO) {
+            val folder = File(cacheDir, "diagnostics_share")
+            check(folder.isDirectory || folder.mkdirs()) { "Не удалось создать временную папку диагностики" }
+            // Old copies can contain app usage metadata: remove them when no longer needed.
+            val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+            folder.listFiles()?.filter { it.isFile && it.lastModified() < cutoff }?.forEach { it.delete() }
+            File(folder, Diagnostics.exportFileName()).apply {
+                writeText(Diagnostics.export(applicationContext), Charsets.UTF_8)
+            }
+        }
+        val uri = FileProvider.getUriForFile(
+            this@PanelActivity, "${packageName}.diagnosticsfiles", file
+        )
+        val send = Intent(Intent.ACTION_SEND).apply {
+            // text/plain allows more Android share targets than application/x-ndjson.
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(file.name, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, "Отправить диагностический файл"))
+    }
+
     private fun refreshHookDiagnostics() {
         if (!::hookDiagnosticHistory.isInitialized) return
         val records=Diagnostics.recentHooks(20)
