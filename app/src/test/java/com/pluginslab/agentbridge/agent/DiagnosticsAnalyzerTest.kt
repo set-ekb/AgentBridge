@@ -51,7 +51,7 @@ class DiagnosticsAnalyzerTest {
         assertEquals(2, analysis["api_errors_observed"]!!.jsonPrimitive.int)
         assertEquals(1, analysis["errors_by_provider"]!!.jsonObject["gemini"]!!.jsonPrimitive.int)
         assertEquals(1, analysis["errors_by_provider"]!!.jsonObject["unattributed"]!!.jsonPrimitive.int)
-        assertEquals(125, analysis["latency_ms"]!!.jsonObject["p50"]!!.jsonPrimitive.long)
+        assertEquals(125L, analysis["latency_ms"]!!.jsonObject["p50"]!!.jsonPrimitive.long)
     }
 
     @Test fun toolLatencyAndSuccessAreNotResultVerification() {
@@ -63,7 +63,7 @@ class DiagnosticsAnalyzerTest {
         val tool = DiagnosticsAnalyzer.toolPerformance(w)["tools"]!!.jsonArray.single().jsonObject
         assertEquals("tap_node", tool["tool"]!!.jsonPrimitive.content)
         assertEquals(1, tool["reported_error_or_rejected"]!!.jsonPrimitive.int)
-        assertEquals(500, tool["latency_ms"]!!.jsonObject["p95"]!!.jsonPrimitive.long)
+        assertEquals(500L, tool["latency_ms"]!!.jsonObject["p95"]!!.jsonPrimitive.long)
         assertTrue(DiagnosticsAnalyzer.toolPerformance(w)["note"]!!.jsonPrimitive.content.contains("never verifies"))
     }
 
