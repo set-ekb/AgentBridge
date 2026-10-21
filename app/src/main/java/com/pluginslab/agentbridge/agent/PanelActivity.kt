@@ -397,29 +397,73 @@ open class PanelActivity: AppCompatActivity() {
             label("Обычные действия по задаче выполняются автоматически. Стоп доступен вверху и в уведомлении. Качество результата проверяется по свежему состоянию интерфейса.",12)
         }
         page {
-            label("Журнал",27,white)
-            label("Проверка Vector Hooks",17,white)
-            hookDiagnosticHistory=label("Обновите диагностику хуков.",12).apply { setTextIsSelectable(true) }
-            button("Обновить диагностику хуков") { refreshHookDiagnostics() }
-            label("hook_status=callback_active означает получение сигнала из модуля (или тестового broadcast). При отсутствии сигнала проверьте логи AgentBridgeHooks в Vector: module_loaded, package_ready, hooks_installed, hook_install_failed.",12)
-            label("События интерфейса Android / Vector",17,white)
-            appEventHistory=label("Нажмите «Обновить события».",12).apply { setTextIsSelectable(true) }
-            button("Обновить события") { refreshAppEvents();refreshHookDiagnostics() }
-            label("Vector-подсказки не подтверждают выполнение действия. Агент дополнительно проверяет экран.",12)
-            button("Сохранить журнал с датой (.jsonl)") { exportDiagnostics.launch(Diagnostics.exportFileName()) }
-            button("Поделиться журналом с помощником") { shareDiagnostics() }
-            label("Имя файла включает местные дату и время. «Поделиться» открывает выбор приложения — ничего автоматически не отправляется. Перед передачей проверьте журнал: технические сведения об используемых приложениях тоже могут быть личными.",12)
-            button("История задач · показать / скрыть") { checkpoints.visibility=if(checkpoints.visibility==View.VISIBLE) View.GONE else View.VISIBLE;refreshTasks() }
-            checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=View.GONE };column.addView(checkpoints)
-            label("Сохранённые технические события · без текстов экранов",13)
-            history=label("",12).apply { setTextIsSelectable(true) }
-            button("Обновить журнал") { refreshHistory() }
-            label("Подробности текущей задачи · только в памяти процесса",16,white)
-            journal=label("",12).apply { typeface=android.graphics.Typeface.MONOSPACE;setTextIsSelectable(true) }
-            button("Удалить историю задач и событий") { action {
-                check(!AgentRuntime.state.value.running) { "Сначала остановите задачу" }
-                withContext(Dispatchers.IO) { store.clearHistory() };refreshTasks();refreshHistory()
-            } }
+            label("Журнал",26,white)
+            journalOverview=label("Сводка ещё не обновлена",13,white).apply {
+                setPadding(dp(12),dp(11),dp(12),dp(11))
+                background=panelBg(surfaceAlt, border, 12)
+                setTextIsSelectable(true)
+            }
+            button("Обновить сводку",true) {
+                refreshJournalOverview()
+                refreshHookDiagnostics()
+                refreshAppEvents()
+            }
+            actionPair(
+                "Сохранить .jsonl", { exportDiagnostics.launch(Diagnostics.exportFileName()) },
+                "Поделиться", { shareDiagnostics() }
+            )
+            label("Выгрузка содержит только технические метаданные. Отправка — только по твоему выбору.",11)
+            section("Vector Hooks", "Загрузка модуля и события · необязательный источник") {
+                hookDiagnosticHistory=label("Нет проверенных сигналов. Нажми «Обновить».",12).apply {
+                    setTextIsSelectable(true)
+                }
+                button("Обновить Vector") { refreshHookDiagnostics() }
+                label("Без записей? Проверь Vector → Журналы и область действия Hooks. Тестовый broadcast не доказывает работу хука.",11)
+            }
+            section("События Android", "Последние 25 переходов · Accessibility / Vector") {
+                appEventHistory=label("Нажми «Обновить события».",12).apply {
+                    typeface=Typeface.MONOSPACE
+                    setTextIsSelectable(true)
+                }
+                button("Обновить события") { refreshAppEvents() }
+            }
+            section("История задач", "Сохранённые задачи и технические события") {
+                checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+                column.addView(checkpoints)
+                button("Обновить историю задач") { refreshTasks() }
+                history=label("",12).apply {
+                    maxLines=14
+                    setTextIsSelectable(true)
+                }
+                button("Обновить записи") { refreshHistory() }
+                button("Показать / свернуть записи") {
+                    history.maxLines=if(history.maxLines==14) Int.MAX_VALUE else 14
+                }
+                button("Очистить историю задач") {
+                    android.app.AlertDialog.Builder(this@PanelActivity)
+                        .setTitle("Очистить историю?")
+                        .setMessage("Будут удалены сохранённые события и история задач. Файл диагностики .jsonl сохраняется отдельно.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Очистить") { _,_ ->
+                            action {
+                                check(!AgentRuntime.state.value.running) { "Сначала остановите задачу" }
+                                withContext(Dispatchers.IO) { store.clearHistory() }
+                                refreshTasks()
+                                refreshHistory()
+                            }
+                        }.show()
+                }
+            }
+            section("Отладка текущей задачи", "Подробности вызовов · только локально") {
+                journal=label("Пока нет активного журнала задачи.",12).apply {
+                    typeface=Typeface.MONOSPACE
+                    maxLines=18
+                    setTextIsSelectable(true)
+                }
+                button("Показать / свернуть подробности") {
+                    journal.maxLines=if(journal.maxLines==18) Int.MAX_VALUE else 18
+                }
+            }
         }
         page {
             label("Состояние",27,white)
@@ -436,7 +480,7 @@ open class PanelActivity: AppCompatActivity() {
         if(!intent.getBooleanExtra("compact",false)) buildNavigation(root)
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
-        refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics()
+        refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics();refreshJournalOverview()
     }
     private fun agentPage() {
         val page=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
@@ -483,7 +527,7 @@ open class PanelActivity: AppCompatActivity() {
     private fun showTab(index: Int) {
         activeTab=index;pageViews.forEachIndexed { i,v -> v.visibility=if(i==index) View.VISIBLE else View.GONE }
         highlightNavigation(index)
-        if(index==0) refreshTasks();if(index==1) refreshMemory();if(index==3) refreshHistory()
+        if(index==0) refreshTasks();if(index==1) refreshMemory();if(index==3) { refreshJournalOverview();refreshHookDiagnostics() }
         if(index==4) refreshHealthStatus()
     }
     private fun network(block: suspend ()->Unit) {
@@ -499,20 +543,38 @@ open class PanelActivity: AppCompatActivity() {
     private fun action(block: suspend ()->Unit) {
         scope.launch { try { block() } catch(e:CancellationException) { throw e } catch(e:Exception) { feedback(e.message?.take(220) ?: "Ошибка: ${e.javaClass.simpleName}") } }
     }
-    private fun label(text: String,size: Int,color: Int=Color.rgb(154,179,161)): TextView = TextView(this).apply {
-        this.text=text;textSize=size.toFloat();setTextColor(color);setPadding(0,dp(7),0,dp(5));column.addView(this,LinearLayout.LayoutParams(-1,-2))
+    private fun label(text: String,size: Int,color: Int=muted): TextView = TextView(this).apply {
+        this.text=text
+        textSize=size.toFloat()
+        setTextColor(color)
+        includeFontPadding=false
+        if(size>=17) setTypeface(null,Typeface.BOLD)
+        setPadding(0,dp(if(size>=21) 11 else 6),0,dp(if(size>=21) 11 else 7))
+        column.addView(this,LinearLayout.LayoutParams(-1,-2))
     }
     private fun input(hint: String,password: Boolean=false,multi: Boolean=false): EditText = EditText(this).apply {
-        this.hint=hint;setTextColor(white);setHintTextColor(Color.rgb(103,132,111));textSize=15f
-        inputType=InputType.TYPE_CLASS_TEXT or if(password) InputType.TYPE_TEXT_VARIATION_PASSWORD else if(multi) InputType.TYPE_TEXT_FLAG_MULTI_LINE else InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        setPadding(dp(10),dp(10),dp(10),dp(10));isSaveEnabled=false
-        column.addView(this,LinearLayout.LayoutParams(-1,-2));editable.add(this)
+        this.hint=hint
+        setTextColor(white)
+        setHintTextColor(muted)
+        textSize=14f
+        inputType=InputType.TYPE_CLASS_TEXT or if(password) InputType.TYPE_TEXT_VARIATION_PASSWORD
+            else if(multi) InputType.TYPE_TEXT_FLAG_MULTI_LINE else InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        backgroundTintList=null
+        background=panelBg(Color.rgb(13,24,18),border,11)
+        setPadding(dp(12),dp(10),dp(12),dp(10))
+        minHeight=dp(48)
+        isSaveEnabled=false
+        column.addView(this,LinearLayout.LayoutParams(-1,-2).apply {
+            bottomMargin=dp(7)
+        })
+        editable.add(this)
     }
-    private fun button(text: String,accent: Boolean=false,action: ()->Unit): Button = Button(this).apply {
-        this.text=text;isAllCaps=false;textSize=15f;minHeight=dp(50);setTextColor(if(accent) navy else white)
-        backgroundTintList=android.content.res.ColorStateList.valueOf(if(accent) mint else Color.rgb(20,35,25))
-        column.addView(this,LinearLayout.LayoutParams(-1,-2));setOnClickListener { action() }
-    }
+    private fun button(text: String,accent: Boolean=false,action: ()->Unit): Button =
+        smallButton(text,accent,action).apply {
+            column.addView(this,LinearLayout.LayoutParams(-1,-2).apply {
+                topMargin=dp(3);bottomMargin=dp(3)
+            })
+        }
     private fun feedback(text: String) { Toast.makeText(this,text,Toast.LENGTH_LONG).show() }
     private fun updateProviderUi() {
         model.setText(prefs.modelFor(selection));key.text.clear();endpoint.setText(prefs.compatibleEndpoint)
@@ -717,6 +779,23 @@ open class PanelActivity: AppCompatActivity() {
                 append("Ошибок и отклонений в журнале: ").append(str(summary,"errors_observed")).append("\n")
                 append("История может быть неполной из-за ротации журнала.")
             }
+        }
+    }
+
+    private fun refreshJournalOverview() {
+        if(!::journalOverview.isInitialized) return
+        action {
+            val (window,summary) = withContext(Dispatchers.IO) {
+                val w=DiagnosticsAnalyzer.parse(Diagnostics.snapshotLines(),24)
+                w to DiagnosticsAnalyzer.summary(w)
+            }
+            val count=window.events.size
+            val errors=summary["errors_observed"]?.jsonPrimitive?.intOrNull ?: 0
+            val a11y=if(BridgeAccessibilityService.instance!=null) "подключена" else "не подключена"
+            val vector=if(window.events.any { it.kind=="hook_event" || it.kind=="hook_status" })
+                "сигналы получены · не подтверждены" else "нет подтверждённых событий"
+            journalOverview.text="Событий за 24 ч: $count   •   ошибок/отклонений: $errors\n"+
+                "Accessibility: $a11y\nVector: $vector"
         }
     }
 
