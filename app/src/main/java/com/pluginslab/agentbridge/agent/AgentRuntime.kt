@@ -202,7 +202,10 @@ object AgentRuntime {
                       try {
                         ensureActive()
                         while(routingHold) { phase("Ожидаю обработки новой реплики");delay(200);ensureActive() }
-                        if(waitForForeground(context,currentTask()!!.taskRevision)) { engineRevision=-1;continue@taskLoop }
+                        // Do not stall LLM reasoning while the owner's conversation panel is open.
+                        // Screen-dependent actions remain guarded by UiContextPolicy and
+                        // fresh active-window checks at dispatch time.
+
                         if(engineRevision!=currentTask()!!.taskRevision) {
                             delay(prefs.mergeMillis.toLong())
                             val current=currentTask()!!
