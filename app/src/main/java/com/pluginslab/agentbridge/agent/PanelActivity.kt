@@ -49,6 +49,8 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var checkpoints: LinearLayout
     private lateinit var memoryList: LinearLayout
     private lateinit var memorySearch: EditText
+    private var memoryVisibleLimit=60
+    private var lastMemoryQuery=""
     private lateinit var journal: TextView
     private lateinit var history: TextView
     private lateinit var appEventHistory: TextView
@@ -319,21 +321,27 @@ open class PanelActivity: AppCompatActivity() {
         agentPage()
         page {
             label("Память",27,white)
-            label("До 1000 записей доступны всем моделям. В запрос попадают только подходящие подтверждённые знания. Состояние экрана нужно проверять заново.",13)
+            label("Подтверждённые знания доступны всем подключённым моделям в пределах разрешений.",12)
             memorySearch=input("Поиск по всем записям")
-            button("Найти / обновить") { refreshMemory() }
-            button("Добавить знание",true) { editMemory(null) }
-            button("Импорт .md / .txt / .json") { importFile.launch(arrayOf("text/*","application/json","application/octet-stream")) }
-            button("Экспорт памяти в JSON") { action {
-                exportText=withContext(Dispatchers.IO) { MemoryRules.export(store.entries()) }
-                exportFile.launch("agentbridge-memory.json")
-            } }
-            label("Экспорт исключает помеченные личные и локальные записи, а также распознанные секреты. Перед передачей файла просмотрите его содержимое.",12)
-            memoryList=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL };column.addView(memoryList)
+            actionPair("Найти", { refreshMemory() }, "Добавить", { editMemory(null) },true)
+            section("Импорт и экспорт", "Файлы памяти · только по действию владельца") {
+                button("Импорт .md / .txt / .json") {
+                    importFile.launch(arrayOf("text/*","application/json","application/octet-stream"))
+                }
+                button("Экспорт памяти в JSON") {
+                    action {
+                        exportText=withContext(Dispatchers.IO) { MemoryRules.export(store.entries()) }
+                        exportFile.launch("agentbridge-memory.json")
+                    }
+                }
+                label("Экспорт исключает локальные и отмеченные личные записи. Проверь файл перед отправкой.",11)
+            }
+            memoryList=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+            column.addView(memoryList)
         }
         page {
             label("Настройки",27,white)
-            label("Модели",21,white)
+            section("Модели и подключение", "Провайдер, модель и API-ключ", true) {
             selection=prefs.provider
             provider=Spinner(this).apply { adapter=ArrayAdapter(this@PanelActivity,android.R.layout.simple_spinner_dropdown_item,labels) }
             column.addView(provider,LinearLayout.LayoutParams(-1,dp(54)));editable.add(provider)
@@ -367,17 +375,20 @@ open class PanelActivity: AppCompatActivity() {
                 feedback("Соединение с $id работает")
             } }.also { editable.add(it) }
             label("Ключи шифруются отдельно. API оплачивается отдельно от подписок. Экран и разрешённая память передаются выбранному провайдеру; автоматического перехода к другому провайдеру нет.",12)
-            label("Очередь API",21,white)
+            }
+            section("Квоты API", "Лимиты, очередь, резерв запросов") {
             label("Квоты задаются для выбранной модели и группы проекта. Ноль означает неизвестный лимит; серверные ограничения действуют всегда. TPM оценивается консервативно до ответа, RPD — по скользящим 24 часам.",12)
             button("Настроить квоты выбранной модели") { editQuota() }.also { editable.add(it) }
-            label("Голос",21,white)
+            }
+            section("Голос", "Синтез речи и настройки событий") {
             speak=CheckBox(this).apply { text="Озвучивать итоги и ошибки";isChecked=prefs.speakResults;setTextColor(white) };column.addView(speak);editable.add(speak)
             pitch=input("Высота голоса · 0.5–2.0").apply { setText(prefs.speechPitch.toString()) }
             rate=input("Скорость речи · 0.5–2.0").apply { setText(prefs.speechRate.toString()) }
             label("Русский голос · системная служба Android. Распознавание может использовать сеть; непрерывного прослушивания нет.",12)
             button("Остановить только озвучивание") { VoiceOutput.stop() }
             val events=CheckBox(this).apply { text="Озвучивать значимые события";isChecked=prefs.speakEvents;setTextColor(white);setOnCheckedChangeListener { _,checked->prefs.speakEvents=checked } };column.addView(events)
-            label("Виджет",21,white)
+            }
+            section("Виджет и приватность", "Рабочий стол, история разговора") {
             button("Добавить виджет на рабочий стол") {
                 val manager=android.appwidget.AppWidgetManager.getInstance(this)
                 if(manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(android.content.ComponentName(this,ConversationWidget::class.java),null,null)
@@ -388,13 +399,15 @@ open class PanelActivity: AppCompatActivity() {
                 check(!AgentRuntime.state.value.running && !ConversationHub.state.value.routing) { "Сначала остановите работу" }
                 withContext(Dispatchers.IO) { store.clearConversation();ConversationHub.refresh() }
             } }
-            label("Bridge и выполнение",21,white)
+            }
+            section("Bridge и выполнение", "Спецвозможности, MCP и задержка запуска") {
             delay=input("Задержка старта · 0–30 секунд").apply { inputType=InputType.TYPE_CLASS_NUMBER;setText(prefs.delaySeconds.toString()) }
             button("Сохранить настройки голоса и задержки") { try { saveVoice();feedback("Настройки сохранены") } catch(e:Exception) { feedback(e.message ?: "Проверьте значения") } }.also { editable.add(it) }
             button("Включить спецвозможности") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             button("Внешний MCP / настройки Bridge") { startActivity(Intent(this,SettingsActivity::class.java)) }
             button("Настройки синтеза речи Android") { runCatching { startActivity(Intent("com.android.settings.TTS_SETTINGS")) }.onFailure { feedback("Раздел синтеза речи недоступен") } }
-            label("Обычные действия по задаче выполняются автоматически. Стоп доступен вверху и в уведомлении. Качество результата проверяется по свежему состоянию интерфейса.",12)
+            label("Действия подтверждаются свежими данными экрана; остановка доступна вверху и через уведомление.",11)
+            }
         }
         page {
             label("Журнал",26,white)
@@ -466,16 +479,24 @@ open class PanelActivity: AppCompatActivity() {
             }
         }
         page {
-            label("Состояние",27,white)
-            label("Локальная диагностика · 24 часа",16,white)
-            label("Здесь отображаются только проверяемые технические сведения. Отсутствие ошибок в журнале не означает, что приложение исправно.",12)
-            healthSummary=label("Нажмите «Проверить состояние».",14).apply {
+            label("Состояние",26,white)
+            label("Локальная проверка за 24 часа",13)
+            healthSummary=label("Нажми «Проверить состояние».",13,white).apply {
                 setTextIsSelectable(true)
-                typeface=android.graphics.Typeface.MONOSPACE
+                setPadding(dp(12),dp(12),dp(12),dp(12))
+                background=panelBg(surfaceAlt,border,12)
             }
             button("Проверить состояние",true) { refreshHealthStatus() }
-            label("Доступны агенту: get_diagnostics_summary, get_recent_errors, check_bridge_health, analyze_api_failures, analyze_tool_performance, inspect_hook_pipeline.",12)
-            label("Проверка не вызывает API, не изменяет систему и не запускает автоматическое исправление. Подробный экспорт: вкладка «Журнал».",12)
+            section("Инструменты агента", "Шесть локальных проверок · только чтение") {
+                label("• Общая сводка и последние ошибки\n"+
+                    "• Состояние компонентов и API\n"+
+                    "• Время выполнения инструментов\n"+
+                    "• Сигналы Vector / Accessibility",13,white)
+                label("API-запросы не выполняются при открытии этой страницы. Подробности можно сохранить на вкладке «Журнал».",11)
+            }
+            section("Что означает «не проверено»?", "Ограничения технической диагностики") {
+                label("Отсутствие событий не доказывает исправность. Vector — дополнительный источник, а его сообщения не подтверждают результат действий. История может быть неполной после ротации журнала.",12)
+            }
         }
         if(!intent.getBooleanExtra("compact",false)) buildNavigation(root)
         scope.launch { AgentRuntime.state.collect { render(it) } }
@@ -684,13 +705,45 @@ open class PanelActivity: AppCompatActivity() {
     } }
     private fun refreshMemory() { if(!::memoryList.isInitialized) return;action {
         val query=memorySearch.text.toString().trim()
-        val entries=withContext(Dispatchers.IO) { store.entries().filter { query.isBlank() || (it.title+" "+it.content+" "+it.kind+" "+it.source).contains(query,true) } }
+        if(query!=lastMemoryQuery) { memoryVisibleLimit=60;lastMemoryQuery=query }
+        val entries=withContext(Dispatchers.IO) {
+            store.entries().filter {
+                query.isBlank() || (it.title+" "+it.content+" "+it.kind+" "+it.source).contains(query,true)
+            }
+        }
         memoryList.removeAllViews()
-        entries.forEach { e ->
-            val b=Button(this@PanelActivity).apply {
-                text="${e.title}\n${e.kind} · ${e.verification} · ${e.source}\n${if(e.pinned) "Закреплено · " else ""}${if(e.cloudAllowed) "Облако разрешено" else "Только локально"}\n${e.content.take(120)}"
-                isAllCaps=false;setTextColor(white);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25));setOnClickListener { editMemory(e) }
-            };memoryList.addView(b,LinearLayout.LayoutParams(-1,-2))
+        if(entries.isEmpty()) memoryList.addView(basicText("Ничего не найдено. Измени запрос или добавь запись.",13f,muted).apply {
+            setPadding(dp(8),dp(14),dp(8),dp(14))
+        })
+        entries.take(memoryVisibleLimit).forEach { e ->
+            val card=LinearLayout(this@PanelActivity).apply {
+                orientation=LinearLayout.VERTICAL
+                setPadding(dp(12),dp(10),dp(12),dp(10))
+                background=panelBg()
+                isClickable=true;isFocusable=true
+                contentDescription="Открыть запись: "+e.title
+                setOnClickListener { editMemory(e) }
+            }
+            val head=basicText(e.title,14f,white).apply {
+                setTypeface(null,Typeface.BOLD)
+                maxLines=2
+                ellipsize=android.text.TextUtils.TruncateAt.END
+            }
+            card.addView(head)
+            card.addView(basicText(
+                e.kind+" · "+e.verification+" · "+if(e.cloudAllowed) "для моделей" else "локально",
+                11f,muted
+            ).apply { setPadding(0,dp(5),0,dp(4)) })
+            card.addView(basicText(e.content,12f,white).apply {
+                maxLines=2
+                ellipsize=android.text.TextUtils.TruncateAt.END
+            })
+            memoryList.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+        }
+        if(entries.size>memoryVisibleLimit) {
+            memoryList.addView(smallButton("Показать ещё · ${entries.size-memoryVisibleLimit}") {
+                memoryVisibleLimit+=60;refreshMemory()
+            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
     } }
     private fun editMemory(entry: MemoryEntry?) {
