@@ -5,6 +5,9 @@ import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -46,11 +49,17 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var checkpoints: LinearLayout
     private lateinit var memoryList: LinearLayout
     private lateinit var memorySearch: EditText
+    private var memoryVisibleLimit=UiDisplayRules.MEMORY_PAGE_SIZE
+    private var memoryQueryGeneration=0
+    private var lastMemoryQuery=""
     private lateinit var journal: TextView
     private lateinit var history: TextView
     private lateinit var appEventHistory: TextView
     private lateinit var hookDiagnosticHistory: TextView
     private lateinit var healthSummary: TextView
+    private lateinit var journalOverview: TextView
+    private var fullEventNames=false
+    private val navViews=mutableListOf<LinearLayout>()
     private lateinit var provider: Spinner
     private lateinit var key: EditText
     private lateinit var keyStatus: TextView
@@ -71,7 +80,137 @@ open class PanelActivity: AppCompatActivity() {
     private val navy=Color.rgb(7,13,9)
     private val white=Color.rgb(238,245,252)
     private val mint=Color.rgb(142,211,159)
+    private val surface=Color.rgb(17,29,22)
+    private val surfaceAlt=Color.rgb(22,38,28)
+    private val border=Color.rgb(46,73,54)
+    private val muted=Color.rgb(155,181,160)
     private fun dp(n: Int)=(n*resources.displayMetrics.density).toInt()
+    private fun panelBg(color: Int = surface, outline: Int = border, radius: Int = 14): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius=dp(radius).toFloat()
+            setStroke(dp(1).coerceAtLeast(1),outline)
+        }
+    private fun basicText(value: String,sp: Float,color: Int = white): TextView =
+        TextView(this).apply {
+            text=value;textSize=sp;setTextColor(color)
+            includeFontPadding=false
+        }
+    private fun smallButton(title: String,accent: Boolean=false,callback: ()->Unit): Button =
+        Button(this).apply {
+            text=title;isAllCaps=false;textSize=13f
+            minHeight=dp(45);minimumHeight=dp(45)
+            minWidth=0;minimumWidth=0
+            setPadding(dp(10),0,dp(10),0)
+            setTextColor(if(accent) navy else white)
+            backgroundTintList=null
+            background=panelBg(if(accent) mint else surfaceAlt,if(accent) mint else border,11)
+            elevation=0f
+            setOnClickListener { callback() }
+        }
+    private fun actionPair(
+        left: String, leftAction: ()->Unit,
+        right: String, rightAction: ()->Unit,
+        accentLeft: Boolean=false
+    ) {
+        val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        column.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7);bottomMargin=dp(6) })
+        row.addView(smallButton(left,accentLeft,leftAction),
+            LinearLayout.LayoutParams(0,dp(46),1f).apply { rightMargin=dp(5) })
+        row.addView(smallButton(right,false,rightAction),
+            LinearLayout.LayoutParams(0,dp(46),1f).apply { leftMargin=dp(5) })
+    }
+    /**
+     * Disclosure sections keep heavy journal/history views out of the initial viewport.
+     * Content remains in memory and expands without a new database/network request.
+     */
+    private fun section(title: String, subtitle: String = "", open: Boolean=false, build: ()->Unit) {
+        val parent=column
+        val card=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            background=panelBg()
+            setPadding(dp(12),dp(5),dp(12),dp(10))
+        }
+        parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        val header=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL
+            minimumHeight=dp(52)
+        }
+        val titles=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+        titles.addView(basicText(title,15f,white).apply { setTypeface(null,Typeface.BOLD) })
+        if(subtitle.isNotBlank()) titles.addView(basicText(subtitle,11f,muted).apply {
+            setPadding(0,dp(5),0,0)
+        })
+        header.addView(titles,LinearLayout.LayoutParams(0,-2,1f))
+        val arrow=basicText(if(open) "⌄" else "›",22f,mint).apply {
+            textAlignment=View.TEXT_ALIGNMENT_CENTER
+            contentDescription="Развернуть или свернуть"
+        }
+        header.addView(arrow,LinearLayout.LayoutParams(dp(30),-2))
+        card.addView(header)
+        val content=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            visibility=if(open) View.VISIBLE else View.GONE
+        }
+        card.addView(content)
+        header.setOnClickListener {
+            content.visibility=if(content.visibility==View.VISIBLE) View.GONE else View.VISIBLE
+            arrow.text=if(content.visibility==View.VISIBLE) "⌄" else "›"
+        }
+        header.contentDescription=title+(if(subtitle.isNotBlank()) ". "+subtitle else "")
+        column=content
+        try { build() } finally { column=parent }
+    }
+    private fun buildNavigation(root: LinearLayout) {
+        val tabs=UiDisplayRules.tabs
+        val icons=listOf(
+            android.R.drawable.ic_menu_send,
+            android.R.drawable.ic_menu_agenda,
+            android.R.drawable.ic_menu_manage,
+            android.R.drawable.ic_menu_recent_history,
+            android.R.drawable.ic_menu_info_details
+        )
+        val bar=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            background=panelBg(Color.rgb(12,22,16),border,15)
+            setPadding(dp(2),dp(3),dp(2),dp(3))
+        }
+        tabs.forEachIndexed { i,item ->
+            val tab=LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL
+                gravity=android.view.Gravity.CENTER
+                minimumHeight=dp(54)
+                contentDescription=item.accessible
+            }
+            val icon=ImageView(this).apply {
+                setImageResource(icons[i])
+                setColorFilter(muted)
+                contentDescription=null
+            }
+            tab.addView(icon,LinearLayout.LayoutParams(dp(19),dp(19)))
+            tab.addView(basicText(item.short,10f,muted).apply {
+                gravity=android.view.Gravity.CENTER
+                isSingleLine=true
+                setPadding(0,dp(4),0,0)
+            },LinearLayout.LayoutParams(-1,-2))
+            tab.setOnClickListener { showTab(i) }
+            navViews.add(tab)
+            bar.addView(tab,LinearLayout.LayoutParams(0,dp(57),1f))
+        }
+        root.addView(bar,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
+    }
+    private fun highlightNavigation(index: Int) {
+        navViews.forEachIndexed { i,tab ->
+            val selected=i==index
+            tab.background=if(selected) panelBg(surfaceAlt,Color.rgb(66,112,79),11) else null
+            val icon=tab.getChildAt(0) as ImageView
+            icon.setColorFilter(if(selected) mint else muted)
+            val title=tab.getChildAt(1) as TextView
+            title.setTextColor(if(selected) mint else muted)
+            title.setTypeface(null,if(selected) Typeface.BOLD else Typeface.NORMAL)
+            tab.isSelected=selected
+        }
+    }
     private val speech=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if(r.resultCode==RESULT_OK) {
             val text=r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
@@ -118,11 +257,40 @@ open class PanelActivity: AppCompatActivity() {
         savedInstanceStateTask=savedInstanceState?.getString("draft")
         Diagnostics.init(this)
         prefs=AgentPrefs(this)
-        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
+        val root=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setBackgroundColor(navy)
+            setPadding(dp(10),dp(7),dp(10),dp(6))
+        }
+        val header=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(11),dp(9),dp(11),dp(9))
+            background=panelBg(Color.rgb(12,24,17),Color.rgb(29,54,38),13)
+        }
+        val top=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            gravity=android.view.Gravity.CENTER_VERTICAL
+        }
+        top.addView(basicText("◆",17f,mint),LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(8) })
+        top.addView(basicText("AGENTBRIDGE",16f,white).apply { setTypeface(null,Typeface.BOLD) },
+            LinearLayout.LayoutParams(0,-2,1f))
+        top.addView(basicText("v0.8.7",11f,mint).apply {
+            setPadding(dp(8),dp(3),dp(8),dp(3))
+            background=panelBg(surfaceAlt,border,8)
+        })
+        header.addView(top)
+        modelLabel=basicText("",11f,muted).apply {
+            maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END
+            setPadding(0,dp(7),0,0)
+        }
+        header.addView(modelLabel)
+        status=basicText("Открываю разговор…",12f,mint).apply {
+            maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END
+            setPadding(0,dp(5),0,0)
+        }
+        header.addView(status)
+        root.addView(header,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(3) })
         column=root
-        label("AGENT / BRIDGE  0.8.6",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
-        modelLabel=label("",11)
-        status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         fun control(text: String,action: ()->Unit)=Button(this).apply {
             this.text=text;isAllCaps=false;textSize=13f;minHeight=dp(48);setTextColor(mint)
@@ -154,21 +322,27 @@ open class PanelActivity: AppCompatActivity() {
         agentPage()
         page {
             label("Память",27,white)
-            label("До 1000 записей доступны всем моделям. В запрос попадают только подходящие подтверждённые знания. Состояние экрана нужно проверять заново.",13)
+            label("Подтверждённые знания доступны всем подключённым моделям в пределах разрешений.",12)
             memorySearch=input("Поиск по всем записям")
-            button("Найти / обновить") { refreshMemory() }
-            button("Добавить знание",true) { editMemory(null) }
-            button("Импорт .md / .txt / .json") { importFile.launch(arrayOf("text/*","application/json","application/octet-stream")) }
-            button("Экспорт памяти в JSON") { action {
-                exportText=withContext(Dispatchers.IO) { MemoryRules.export(store.entries()) }
-                exportFile.launch("agentbridge-memory.json")
-            } }
-            label("Экспорт исключает помеченные личные и локальные записи, а также распознанные секреты. Перед передачей файла просмотрите его содержимое.",12)
-            memoryList=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL };column.addView(memoryList)
+            actionPair("Найти", { refreshMemory() }, "Добавить", { editMemory(null) },true)
+            section("Импорт и экспорт", "Файлы памяти · только по действию владельца") {
+                button("Импорт .md / .txt / .json") {
+                    importFile.launch(arrayOf("text/*","application/json","application/octet-stream"))
+                }
+                button("Экспорт памяти в JSON") {
+                    action {
+                        exportText=withContext(Dispatchers.IO) { MemoryRules.export(store.entries()) }
+                        exportFile.launch("agentbridge-memory.json")
+                    }
+                }
+                label("Экспорт исключает локальные и отмеченные личные записи. Проверь файл перед отправкой.",11)
+            }
+            memoryList=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+            column.addView(memoryList)
         }
         page {
             label("Настройки",27,white)
-            label("Модели",21,white)
+            section("Модели и подключение", "Провайдер, модель и API-ключ", true) {
             selection=prefs.provider
             provider=Spinner(this).apply { adapter=ArrayAdapter(this@PanelActivity,android.R.layout.simple_spinner_dropdown_item,labels) }
             column.addView(provider,LinearLayout.LayoutParams(-1,dp(54)));editable.add(provider)
@@ -202,17 +376,20 @@ open class PanelActivity: AppCompatActivity() {
                 feedback("Соединение с $id работает")
             } }.also { editable.add(it) }
             label("Ключи шифруются отдельно. API оплачивается отдельно от подписок. Экран и разрешённая память передаются выбранному провайдеру; автоматического перехода к другому провайдеру нет.",12)
-            label("Очередь API",21,white)
+            }
+            section("Квоты API", "Лимиты, очередь, резерв запросов") {
             label("Квоты задаются для выбранной модели и группы проекта. Ноль означает неизвестный лимит; серверные ограничения действуют всегда. TPM оценивается консервативно до ответа, RPD — по скользящим 24 часам.",12)
             button("Настроить квоты выбранной модели") { editQuota() }.also { editable.add(it) }
-            label("Голос",21,white)
+            }
+            section("Голос", "Синтез речи и настройки событий") {
             speak=CheckBox(this).apply { text="Озвучивать итоги и ошибки";isChecked=prefs.speakResults;setTextColor(white) };column.addView(speak);editable.add(speak)
             pitch=input("Высота голоса · 0.5–2.0").apply { setText(prefs.speechPitch.toString()) }
             rate=input("Скорость речи · 0.5–2.0").apply { setText(prefs.speechRate.toString()) }
             label("Русский голос · системная служба Android. Распознавание может использовать сеть; непрерывного прослушивания нет.",12)
             button("Остановить только озвучивание") { VoiceOutput.stop() }
             val events=CheckBox(this).apply { text="Озвучивать значимые события";isChecked=prefs.speakEvents;setTextColor(white);setOnCheckedChangeListener { _,checked->prefs.speakEvents=checked } };column.addView(events)
-            label("Виджет",21,white)
+            }
+            section("Виджет и приватность", "Рабочий стол, история разговора") {
             button("Добавить виджет на рабочий стол") {
                 val manager=android.appwidget.AppWidgetManager.getInstance(this)
                 if(manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(android.content.ComponentName(this,ConversationWidget::class.java),null,null)
@@ -223,70 +400,110 @@ open class PanelActivity: AppCompatActivity() {
                 check(!AgentRuntime.state.value.running && !ConversationHub.state.value.routing) { "Сначала остановите работу" }
                 withContext(Dispatchers.IO) { store.clearConversation();ConversationHub.refresh() }
             } }
-            label("Bridge и выполнение",21,white)
+            }
+            section("Bridge и выполнение", "Спецвозможности, MCP и задержка запуска") {
             delay=input("Задержка старта · 0–30 секунд").apply { inputType=InputType.TYPE_CLASS_NUMBER;setText(prefs.delaySeconds.toString()) }
             button("Сохранить настройки голоса и задержки") { try { saveVoice();feedback("Настройки сохранены") } catch(e:Exception) { feedback(e.message ?: "Проверьте значения") } }.also { editable.add(it) }
             button("Включить спецвозможности") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             button("Внешний MCP / настройки Bridge") { startActivity(Intent(this,SettingsActivity::class.java)) }
             button("Настройки синтеза речи Android") { runCatching { startActivity(Intent("com.android.settings.TTS_SETTINGS")) }.onFailure { feedback("Раздел синтеза речи недоступен") } }
-            label("Обычные действия по задаче выполняются автоматически. Стоп доступен вверху и в уведомлении. Качество результата проверяется по свежему состоянию интерфейса.",12)
+            label("Действия подтверждаются свежими данными экрана; остановка доступна вверху и через уведомление.",11)
+            }
         }
         page {
-            label("Журнал",27,white)
-            label("Проверка Vector Hooks",17,white)
-            hookDiagnosticHistory=label("Обновите диагностику хуков.",12).apply { setTextIsSelectable(true) }
-            button("Обновить диагностику хуков") { refreshHookDiagnostics() }
-            label("hook_status=callback_active означает получение сигнала из модуля (или тестового broadcast). При отсутствии сигнала проверьте логи AgentBridgeHooks в Vector: module_loaded, package_ready, hooks_installed, hook_install_failed.",12)
-            label("События интерфейса Android / Vector",17,white)
-            appEventHistory=label("Нажмите «Обновить события».",12).apply { setTextIsSelectable(true) }
-            button("Обновить события") { refreshAppEvents();refreshHookDiagnostics() }
-            label("Vector-подсказки не подтверждают выполнение действия. Агент дополнительно проверяет экран.",12)
-            button("Сохранить журнал с датой (.jsonl)") { exportDiagnostics.launch(Diagnostics.exportFileName()) }
-            button("Поделиться журналом с помощником") { shareDiagnostics() }
-            label("Имя файла включает местные дату и время. «Поделиться» открывает выбор приложения — ничего автоматически не отправляется. Перед передачей проверьте журнал: технические сведения об используемых приложениях тоже могут быть личными.",12)
-            button("История задач · показать / скрыть") { checkpoints.visibility=if(checkpoints.visibility==View.VISIBLE) View.GONE else View.VISIBLE;refreshTasks() }
-            checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;visibility=View.GONE };column.addView(checkpoints)
-            label("Сохранённые технические события · без текстов экранов",13)
-            history=label("",12).apply { setTextIsSelectable(true) }
-            button("Обновить журнал") { refreshHistory() }
-            label("Подробности текущей задачи · только в памяти процесса",16,white)
-            journal=label("",12).apply { typeface=android.graphics.Typeface.MONOSPACE;setTextIsSelectable(true) }
-            button("Удалить историю задач и событий") { action {
-                check(!AgentRuntime.state.value.running) { "Сначала остановите задачу" }
-                withContext(Dispatchers.IO) { store.clearHistory() };refreshTasks();refreshHistory()
-            } }
-        }
-        page {
-            label("Состояние",27,white)
-            label("Локальная диагностика · 24 часа",16,white)
-            label("Здесь отображаются только проверяемые технические сведения. Отсутствие ошибок в журнале не означает, что приложение исправно.",12)
-            healthSummary=label("Нажмите «Проверить состояние».",14).apply {
+            label("Журнал",26,white)
+            journalOverview=label("Сводка ещё не обновлена",13,white).apply {
+                setPadding(dp(12),dp(11),dp(12),dp(11))
+                background=panelBg(surfaceAlt, border, 12)
                 setTextIsSelectable(true)
-                typeface=android.graphics.Typeface.MONOSPACE
+            }
+            button("Обновить сводку",true) {
+                refreshJournalOverview()
+                refreshHookDiagnostics()
+                refreshAppEvents()
+            }
+            actionPair(
+                "Сохранить .jsonl", { exportDiagnostics.launch(Diagnostics.exportFileName()) },
+                "Поделиться", { shareDiagnostics() }
+            )
+            label("Выгрузка содержит только технические метаданные. Отправка — только по твоему выбору.",11)
+            section("Vector Hooks", "Загрузка модуля и события · необязательный источник") {
+                hookDiagnosticHistory=label("Нет проверенных сигналов. Нажми «Обновить».",12).apply {
+                    setTextIsSelectable(true)
+                }
+                button("Обновить Vector") { refreshHookDiagnostics() }
+                label("Без записей? Проверь Vector → Журналы и область действия Hooks. Тестовый broadcast не доказывает работу хука.",11)
+            }
+            section("События Android", "Последние 25 переходов · Accessibility / Vector") {
+                appEventHistory=label("Нажми «Обновить события».",12).apply {
+                    typeface=Typeface.MONOSPACE
+                    setTextIsSelectable(true)
+                }
+                actionPair("Обновить", { refreshAppEvents() },
+                    "Полные имена", { fullEventNames=!fullEventNames;refreshAppEvents() })
+            }
+            section("История задач", "Сохранённые задачи и технические события") {
+                checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+                column.addView(checkpoints)
+                button("Обновить историю задач") { refreshTasks() }
+                history=label("",12).apply {
+                    maxLines=14
+                    setTextIsSelectable(true)
+                }
+                button("Обновить записи") { refreshHistory() }
+                button("Показать / свернуть записи") {
+                    history.maxLines=if(history.maxLines==14) Int.MAX_VALUE else 14
+                }
+                button("Очистить историю задач") {
+                    android.app.AlertDialog.Builder(this@PanelActivity)
+                        .setTitle("Очистить историю?")
+                        .setMessage("Будут удалены сохранённые события и история задач. Файл диагностики .jsonl сохраняется отдельно.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Очистить") { _,_ ->
+                            action {
+                                check(!AgentRuntime.state.value.running) { "Сначала остановите задачу" }
+                                withContext(Dispatchers.IO) { store.clearHistory() }
+                                refreshTasks()
+                                refreshHistory()
+                            }
+                        }.show()
+                }
+            }
+            section("Отладка текущей задачи", "Подробности вызовов · только локально") {
+                journal=label("Пока нет активного журнала задачи.",12).apply {
+                    typeface=Typeface.MONOSPACE
+                    maxLines=18
+                    setTextIsSelectable(true)
+                }
+                button("Показать / свернуть подробности") {
+                    journal.maxLines=if(journal.maxLines==18) Int.MAX_VALUE else 18
+                }
+            }
+        }
+        page {
+            label("Состояние",26,white)
+            label("Локальная проверка за 24 часа",13)
+            healthSummary=label("Нажми «Проверить состояние».",13,white).apply {
+                setTextIsSelectable(true)
+                setPadding(dp(12),dp(12),dp(12),dp(12))
+                background=panelBg(surfaceAlt,border,12)
             }
             button("Проверить состояние",true) { refreshHealthStatus() }
-            label("Доступны агенту: get_diagnostics_summary, get_recent_errors, check_bridge_health, analyze_api_failures, analyze_tool_performance, inspect_hook_pipeline.",12)
-            label("Проверка не вызывает API, не изменяет систему и не запускает автоматическое исправление. Подробный экспорт: вкладка «Журнал».",12)
-        }
-        val nav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        listOf("Агент","Память","Настройки","Журнал","Состояние").forEachIndexed { i,title ->
-            val b=Button(this).apply {
-                text=title;isAllCaps=false;textSize=12f;minimumWidth=0;minWidth=0
-                setTextColor(white)
-                backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25))
-                setPadding(dp(3),dp(8),dp(3),dp(8))
-                setOnClickListener { showTab(i) }
+            section("Инструменты агента", "Шесть локальных проверок · только чтение") {
+                label("• Общая сводка и последние ошибки\n"+
+                    "• Состояние компонентов и API\n"+
+                    "• Время выполнения инструментов\n"+
+                    "• Сигналы Vector / Accessibility",13,white)
+                label("API-запросы не выполняются при открытии этой страницы. Подробности можно сохранить на вкладке «Журнал».",11)
             }
-            nav.addView(b,LinearLayout.LayoutParams(dp(101),-2))
+            section("Что означает «не проверено»?", "Ограничения технической диагностики") {
+                label("Отсутствие событий не доказывает исправность. Vector — дополнительный источник, а его сообщения не подтверждают результат действий. История может быть неполной после ротации журнала.",12)
+            }
         }
-        if(!intent.getBooleanExtra("compact",false)) {
-            val bar=HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled=false }
-            bar.addView(nav)
-            root.addView(bar)
-        }
+        if(!intent.getBooleanExtra("compact",false)) buildNavigation(root)
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
-        refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics()
+        refreshTasks();refreshMemory()
     }
     private fun agentPage() {
         val page=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
@@ -332,7 +549,8 @@ open class PanelActivity: AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) { if(::taskInput.isInitialized) outState.putString("draft",taskInput.text.toString());super.onSaveInstanceState(outState) }
     private fun showTab(index: Int) {
         activeTab=index;pageViews.forEachIndexed { i,v -> v.visibility=if(i==index) View.VISIBLE else View.GONE }
-        if(index==0) refreshTasks();if(index==1) refreshMemory();if(index==3) refreshHistory()
+        highlightNavigation(index)
+        if(index==0) refreshTasks();if(index==1) refreshMemory();if(index==3) { refreshJournalOverview();refreshHookDiagnostics() }
         if(index==4) refreshHealthStatus()
     }
     private fun network(block: suspend ()->Unit) {
@@ -348,20 +566,38 @@ open class PanelActivity: AppCompatActivity() {
     private fun action(block: suspend ()->Unit) {
         scope.launch { try { block() } catch(e:CancellationException) { throw e } catch(e:Exception) { feedback(e.message?.take(220) ?: "Ошибка: ${e.javaClass.simpleName}") } }
     }
-    private fun label(text: String,size: Int,color: Int=Color.rgb(154,179,161)): TextView = TextView(this).apply {
-        this.text=text;textSize=size.toFloat();setTextColor(color);setPadding(0,dp(7),0,dp(5));column.addView(this,LinearLayout.LayoutParams(-1,-2))
+    private fun label(text: String,size: Int,color: Int=muted): TextView = TextView(this).apply {
+        this.text=text
+        textSize=size.toFloat()
+        setTextColor(color)
+        includeFontPadding=false
+        if(size>=17) setTypeface(null,Typeface.BOLD)
+        setPadding(0,dp(if(size>=21) 11 else 6),0,dp(if(size>=21) 11 else 7))
+        column.addView(this,LinearLayout.LayoutParams(-1,-2))
     }
     private fun input(hint: String,password: Boolean=false,multi: Boolean=false): EditText = EditText(this).apply {
-        this.hint=hint;setTextColor(white);setHintTextColor(Color.rgb(103,132,111));textSize=15f
-        inputType=InputType.TYPE_CLASS_TEXT or if(password) InputType.TYPE_TEXT_VARIATION_PASSWORD else if(multi) InputType.TYPE_TEXT_FLAG_MULTI_LINE else InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        setPadding(dp(10),dp(10),dp(10),dp(10));isSaveEnabled=false
-        column.addView(this,LinearLayout.LayoutParams(-1,-2));editable.add(this)
+        this.hint=hint
+        setTextColor(white)
+        setHintTextColor(muted)
+        textSize=14f
+        inputType=InputType.TYPE_CLASS_TEXT or if(password) InputType.TYPE_TEXT_VARIATION_PASSWORD
+            else if(multi) InputType.TYPE_TEXT_FLAG_MULTI_LINE else InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        backgroundTintList=null
+        background=panelBg(Color.rgb(13,24,18),border,11)
+        setPadding(dp(12),dp(10),dp(12),dp(10))
+        minHeight=dp(48)
+        isSaveEnabled=false
+        column.addView(this,LinearLayout.LayoutParams(-1,-2).apply {
+            bottomMargin=dp(7)
+        })
+        editable.add(this)
     }
-    private fun button(text: String,accent: Boolean=false,action: ()->Unit): Button = Button(this).apply {
-        this.text=text;isAllCaps=false;textSize=15f;minHeight=dp(50);setTextColor(if(accent) navy else white)
-        backgroundTintList=android.content.res.ColorStateList.valueOf(if(accent) mint else Color.rgb(20,35,25))
-        column.addView(this,LinearLayout.LayoutParams(-1,-2));setOnClickListener { action() }
-    }
+    private fun button(text: String,accent: Boolean=false,action: ()->Unit): Button =
+        smallButton(text,accent,action).apply {
+            column.addView(this,LinearLayout.LayoutParams(-1,-2).apply {
+                topMargin=dp(3);bottomMargin=dp(3)
+            })
+        }
     private fun feedback(text: String) { Toast.makeText(this,text,Toast.LENGTH_LONG).show() }
     private fun updateProviderUi() {
         model.setText(prefs.modelFor(selection));key.text.clear();endpoint.setText(prefs.compatibleEndpoint)
@@ -444,7 +680,10 @@ open class PanelActivity: AppCompatActivity() {
         if(!::start.isInitialized) return
         val view=ConversationHub.state.value
         status.text=view.phase
-        if(::journal.isInitialized && journal.text.toString()!=s.log.takeLast(60000)) journal.text=s.log.takeLast(60000)
+        if(activeTab==3 && ::journal.isInitialized) {
+            val excerpt=s.log.takeLast(16000)
+            if(journal.text.toString()!=excerpt) journal.text=excerpt
+        }
         val busy=s.running || operation?.isActive==true || view.routing
         editable.forEach { it.isEnabled=!busy || it===taskInput || it===memorySearch }
         taskInput.isEnabled=true;mic.isEnabled=true;start.isEnabled=!sending
@@ -452,7 +691,7 @@ open class PanelActivity: AppCompatActivity() {
         pauseButton.visibility=if(view.task!=null && !IntentRules.isTerminal(view.task.status)) View.VISIBLE else View.GONE
         pauseButton.text=if(s.running) "Пауза" else if(view.task?.status=="WAIT_USER") "Ответить" else "Продолжить"
         modelLabel.text="${labels[ids.indexOf(prefs.provider)]} / ${prefs.modelFor(prefs.provider)} · ${if(BridgeAccessibilityService.instance!=null) "Bridge ●" else "Bridge ○"}"
-        if(wasRunning && !s.running) { refreshTasks();refreshHistory() }
+        if(wasRunning && !s.running) refreshTasks()
         wasRunning=s.running
     }
     private fun refreshTasks() { if(!::checkpoints.isInitialized) return;action {
@@ -471,13 +710,47 @@ open class PanelActivity: AppCompatActivity() {
     } }
     private fun refreshMemory() { if(!::memoryList.isInitialized) return;action {
         val query=memorySearch.text.toString().trim()
-        val entries=withContext(Dispatchers.IO) { store.entries().filter { query.isBlank() || (it.title+" "+it.content+" "+it.kind+" "+it.source).contains(query,true) } }
+        val generation=++memoryQueryGeneration
+        if(query!=lastMemoryQuery) { memoryVisibleLimit=UiDisplayRules.MEMORY_PAGE_SIZE;lastMemoryQuery=query }
+        val entries=withContext(Dispatchers.IO) {
+            store.entries().filter {
+                query.isBlank() || (it.title+" "+it.content+" "+it.kind+" "+it.source).contains(query,true)
+            }
+        }
+        if(generation!=memoryQueryGeneration) return@action
         memoryList.removeAllViews()
-        entries.forEach { e ->
-            val b=Button(this@PanelActivity).apply {
-                text="${e.title}\n${e.kind} · ${e.verification} · ${e.source}\n${if(e.pinned) "Закреплено · " else ""}${if(e.cloudAllowed) "Облако разрешено" else "Только локально"}\n${e.content.take(120)}"
-                isAllCaps=false;setTextColor(white);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25));setOnClickListener { editMemory(e) }
-            };memoryList.addView(b,LinearLayout.LayoutParams(-1,-2))
+        if(entries.isEmpty()) memoryList.addView(basicText("Ничего не найдено. Измени запрос или добавь запись.",13f,muted).apply {
+            setPadding(dp(8),dp(14),dp(8),dp(14))
+        })
+        entries.take(memoryVisibleLimit).forEach { e ->
+            val card=LinearLayout(this@PanelActivity).apply {
+                orientation=LinearLayout.VERTICAL
+                setPadding(dp(12),dp(10),dp(12),dp(10))
+                background=panelBg()
+                isClickable=true;isFocusable=true
+                contentDescription="Открыть запись: "+e.title
+                setOnClickListener { editMemory(e) }
+            }
+            val head=basicText(e.title,14f,white).apply {
+                setTypeface(null,Typeface.BOLD)
+                maxLines=2
+                ellipsize=android.text.TextUtils.TruncateAt.END
+            }
+            card.addView(head)
+            card.addView(basicText(
+                e.kind+" · "+e.verification+" · "+if(e.cloudAllowed) "для моделей" else "локально",
+                11f,muted
+            ).apply { setPadding(0,dp(5),0,dp(4)) })
+            card.addView(basicText(e.content,12f,white).apply {
+                maxLines=2
+                ellipsize=android.text.TextUtils.TruncateAt.END
+            })
+            memoryList.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+        }
+        if(entries.size>memoryVisibleLimit) {
+            memoryList.addView(smallButton("Показать ещё · ${entries.size-memoryVisibleLimit}") {
+                memoryVisibleLimit=UiDisplayRules.nextMemoryLimit(memoryVisibleLimit,entries.size);refreshMemory()
+            },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
     } }
     private fun editMemory(entry: MemoryEntry?) {
@@ -557,38 +830,66 @@ open class PanelActivity: AppCompatActivity() {
                 else -> "не проверен / событий нет"
             }
             healthSummary.text=buildString {
-                append("Accessibility: ").append(a11y).append("\n")
-                append("Журнал: ").append(journalState).append("\n")
-                append("Vector: ").append(vectorState).append("\n")
-                append("API моделей: не проверено (запросы не отправляются)").append("\n")
-                append("Агент: ").append(if(AgentRuntime.state.value.running) "выполняет задачу" else "не выполняет задачу").append("\n")
-                append("Событий за 24 часа: ").append(str(health["coverage"]?.jsonObject ?: buildJsonObject {}, "event_count")).append("\n")
-                append("Ошибок и отклонений в журнале: ").append(str(summary,"errors_observed")).append("\n")
-                append("История может быть неполной из-за ротации журнала.")
+                append("Accessibility  ·  ").append(a11y).append("\n")
+                append("Журнал  ·  ").append(journalState).append("\n")
+                append("Vector  ·  ").append(vectorState).append("\n")
+                append("API  ·  не проверено").append("\n")
+                append("Агент  ·  ").append(if(AgentRuntime.state.value.running) "занят" else "ожидает").append("\n\n")
+                append("За 24 ч: ")
+                append(str(health["coverage"]?.jsonObject ?: buildJsonObject {}, "event_count"))
+                append(" событий, ")
+                append(str(summary,"errors_observed"))
+                append(" ошибок / отклонений\n")
+                append("История может быть неполной.")
             }
+        }
+    }
+
+    private fun refreshJournalOverview() {
+        if(!::journalOverview.isInitialized) return
+        action {
+            val (window,summary) = withContext(Dispatchers.IO) {
+                val w=DiagnosticsAnalyzer.parse(Diagnostics.snapshotLines(),24)
+                w to DiagnosticsAnalyzer.summary(w)
+            }
+            val count=window.events.size
+            val errors=summary["errors_observed"]?.jsonPrimitive?.intOrNull ?: 0
+            val a11y=if(BridgeAccessibilityService.instance!=null) "подключена" else "не подключена"
+            val vector=if(window.events.any { it.kind=="hook_event" || it.kind=="hook_status" })
+                "сигналы получены · не подтверждены" else "нет подтверждённых событий"
+            journalOverview.text="Событий за 24 ч: $count   •   ошибок/отклонений: $errors\n"+
+                "Accessibility: $a11y\nVector: $vector"
         }
     }
 
     private fun refreshHookDiagnostics() {
         if (!::hookDiagnosticHistory.isInitialized) return
-        val records=Diagnostics.recentHooks(20)
-        hookDiagnosticHistory.text=if(records.isEmpty())
-            "Нет событий от хуков. Откройте Vector → Журналы; проверьте загрузку модуля и Scope."
-        else records.joinToString("\n") { raw ->
-            val obj=runCatching { org.json.JSONObject(raw) }.getOrNull()
-            if(obj==null) "Некорректная запись диагностики"
-            else listOf(
-                obj.optString("event"), obj.optString("status"),
-                obj.optString("package_name"), obj.optString("activity")
-            ).filter { it.isNotBlank() }.joinToString(" · ")
+        action {
+            val records=withContext(Dispatchers.IO) { Diagnostics.recentHooks(20) }
+            hookDiagnosticHistory.text=if(records.isEmpty())
+                "Сигналы хуков не наблюдались. Проверь Vector → Журналы и область действия."
+            else records.joinToString("\n\n") { raw ->
+                val obj=runCatching { org.json.JSONObject(raw) }.getOrNull()
+                if(obj==null) "Некорректная запись"
+                else listOf(
+                    obj.optString("event"),obj.optString("status"),
+                    obj.optString("package_name"),
+                    obj.optString("activity").substringAfterLast('.')
+                ).filter { it.isNotBlank() }.joinToString(" · ")
+            }
         }
     }
+
     private fun refreshAppEvents() {
         if (!::appEventHistory.isInitialized) return
         val events=AppEventTimeline.recent(limit=25)
-        appEventHistory.text=if(events.isEmpty()) "Пока нет событий. Переключитесь в другое приложение и обратно."
-        else events.joinToString("\n") { e ->
-            "#${e.id} · ${e.source} · ${e.type}\n${e.packageName}${if(e.activity.isNotBlank()) " / "+e.activity else ""}"
+        appEventHistory.text=if(events.isEmpty())
+            "Пока нет событий. Переключись в другое приложение и вернись."
+        else events.joinToString("\n\n") { e ->
+            val origin=if(e.source=="vector_hint") "Vector (не подтверждён)" else "Android"
+            val activity=UiDisplayRules.activityName(e.activity,fullEventNames)
+            "#${e.id}  ·  $origin  ·  ${e.type}\n${e.packageName}"+
+                if(activity.isNotBlank()) "\n$activity" else ""
         }
     }
     private fun refreshHistory() { if(!::history.isInitialized) return;action { history.text=withContext(Dispatchers.IO) { store.events() } } }
