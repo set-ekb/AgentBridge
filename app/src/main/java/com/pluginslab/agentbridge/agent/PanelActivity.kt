@@ -57,6 +57,7 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var hookDiagnosticHistory: TextView
     private lateinit var healthSummary: TextView
     private lateinit var journalOverview: TextView
+    private var fullEventNames=false
     private val navViews=mutableListOf<LinearLayout>()
     private lateinit var provider: Spinner
     private lateinit var key: EditText
@@ -438,7 +439,8 @@ open class PanelActivity: AppCompatActivity() {
                     typeface=Typeface.MONOSPACE
                     setTextIsSelectable(true)
                 }
-                button("Обновить события") { refreshAppEvents() }
+                actionPair("Обновить", { refreshAppEvents() },
+                    "Полные имена", { fullEventNames=!fullEventNames;refreshAppEvents() })
             }
             section("История задач", "Сохранённые задачи и технические события") {
                 checkpoints=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
@@ -501,7 +503,7 @@ open class PanelActivity: AppCompatActivity() {
         if(!intent.getBooleanExtra("compact",false)) buildNavigation(root)
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
-        refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics();refreshJournalOverview()
+        refreshTasks();refreshMemory();refreshHookDiagnostics();refreshJournalOverview()
     }
     private fun agentPage() {
         val page=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
@@ -678,7 +680,10 @@ open class PanelActivity: AppCompatActivity() {
         if(!::start.isInitialized) return
         val view=ConversationHub.state.value
         status.text=view.phase
-        if(::journal.isInitialized && journal.text.toString()!=s.log.takeLast(60000)) journal.text=s.log.takeLast(60000)
+        if(activeTab==3 && ::journal.isInitialized) {
+            val excerpt=s.log.takeLast(16000)
+            if(journal.text.toString()!=excerpt) journal.text=excerpt
+        }
         val busy=s.running || operation?.isActive==true || view.routing
         editable.forEach { it.isEnabled=!busy || it===taskInput || it===memorySearch }
         taskInput.isEnabled=true;mic.isEnabled=true;start.isEnabled=!sending
@@ -823,14 +828,17 @@ open class PanelActivity: AppCompatActivity() {
                 else -> "не проверен / событий нет"
             }
             healthSummary.text=buildString {
-                append("Accessibility: ").append(a11y).append("\n")
-                append("Журнал: ").append(journalState).append("\n")
-                append("Vector: ").append(vectorState).append("\n")
-                append("API моделей: не проверено (запросы не отправляются)").append("\n")
-                append("Агент: ").append(if(AgentRuntime.state.value.running) "выполняет задачу" else "не выполняет задачу").append("\n")
-                append("Событий за 24 часа: ").append(str(health["coverage"]?.jsonObject ?: buildJsonObject {}, "event_count")).append("\n")
-                append("Ошибок и отклонений в журнале: ").append(str(summary,"errors_observed")).append("\n")
-                append("История может быть неполной из-за ротации журнала.")
+                append("Accessibility  ·  ").append(a11y).append("\n")
+                append("Журнал  ·  ").append(journalState).append("\n")
+                append("Vector  ·  ").append(vectorState).append("\n")
+                append("API  ·  не проверено").append("\n")
+                append("Агент  ·  ").append(if(AgentRuntime.state.value.running) "занят" else "ожидает").append("\n\n")
+                append("За 24 ч: ")
+                append(str(health["coverage"]?.jsonObject ?: buildJsonObject {}, "event_count"))
+                append(" событий, ")
+                append(str(summary,"errors_observed"))
+                append(" ошибок / отклонений\n")
+                append("История может быть неполной.")
             }
         }
     }
@@ -869,9 +877,13 @@ open class PanelActivity: AppCompatActivity() {
     private fun refreshAppEvents() {
         if (!::appEventHistory.isInitialized) return
         val events=AppEventTimeline.recent(limit=25)
-        appEventHistory.text=if(events.isEmpty()) "Пока нет событий. Переключитесь в другое приложение и обратно."
-        else events.joinToString("\n") { e ->
-            "#${e.id} · ${e.source} · ${e.type}\n${e.packageName}${if(e.activity.isNotBlank()) " / "+e.activity else ""}"
+        appEventHistory.text=if(events.isEmpty())
+            "Пока нет событий. Переключись в другое приложение и вернись."
+        else events.joinToString("\n\n") { e ->
+            val origin=if(e.source=="vector_hint") "Vector (не подтверждён)" else "Android"
+            val activity=if(fullEventNames) e.activity else e.activity.substringAfterLast('.')
+            "#${e.id}  ·  $origin  ·  ${e.type}\n${e.packageName}"+
+                if(activity.isNotBlank()) "\n$activity" else ""
         }
     }
     private fun refreshHistory() { if(!::history.isInitialized) return;action { history.text=withContext(Dispatchers.IO) { store.events() } } }
