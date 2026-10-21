@@ -17,8 +17,12 @@ object AppEventTimeline {
         if (activity.isNotEmpty() && !activity.matches(Regex("[A-Za-z0-9_.$]{1,220}"))) return
         val now = System.currentTimeMillis()
         val last = ring.lastOrNull()
+        // Collapse only consecutive *identical* Accessibility notifications.
+        // A different window/package always remains a separate transition.
+        val duplicateWindowMs = if (source == "accessibility") 1500L else 500L
         if (last != null && last.source == source && last.type == type &&
-            last.packageName == packageName && last.activity == activity && now - last.timestamp < 500) return
+            last.packageName == packageName && last.activity == activity &&
+            now - last.timestamp in 0 until duplicateWindowMs) return
         ring.addLast(Event(++nextId, now, source, type, packageName, activity))
         // One logical event: bounded UI ring plus the persistent JSONL export.
         Diagnostics.record(

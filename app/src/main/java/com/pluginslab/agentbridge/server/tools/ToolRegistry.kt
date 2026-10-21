@@ -7,6 +7,7 @@ import com.pluginslab.agentbridge.agent.AgentRuntime
 import com.pluginslab.agentbridge.agent.ActionDispatch
 import com.pluginslab.agentbridge.agent.ActivityLaunch
 import com.pluginslab.agentbridge.agent.LaunchEvidence
+import com.pluginslab.agentbridge.agent.LaunchFailurePolicy
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
@@ -38,6 +39,7 @@ import io.modelcontextprotocol.kotlin.sdk.TextContent
 import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -652,34 +654,69 @@ object ToolRegistry {
 
     // --- launch_app ---
 
+    /** Structured failures make non-verified launches recoverable by the model. */
+    private fun launchFailure(
+        code: String, requested: String = "", active: String? = null
+    ): CallToolResult = CallToolResult(
+        content = listOf(TextContent(json.encodeToString(buildJsonObject {
+            put("success", false)
+            put("verified", false)
+            put("error_code", code)
+            if (LaunchFailurePolicy.validPackage(requested)) put("package", requested)
+            put("current_package", active ?: "unknown")
+            put("recovery_hint", LaunchFailurePolicy.guidance(code))
+        }))),
+        isError = true
+    )
+
     private fun registerLaunchApp(server: Server) {
         server.exposeTool(
             name = "launch_app",
-            description = "Launch an app by package name and wait up to 8 seconds for its foreground window. success=true only when the target package is actually observed on screen; otherwise returns an error with the current package.",
+            description = "Request an application launch and verify the actual foreground window. " +
+                "On failure returns a structured error_code (not task-fatal). A successful dispatch is " +
+                "not proof of a visible app. Android can restrict launches from the background.",
             inputSchema = Tool.Input(
                 properties = buildJsonObject {
                     put("package", buildJsonObject {
                         put("type", "string")
-                        put("description", "Package name, e.g. com.android.chrome")
+                        put("description", "Installed launchable Android package, e.g. com.android.settings")
                     })
                 },
                 required = listOf("package")
             )
         ) { request: CallToolRequest ->
-            val svc = getService() ?: return@exposeTool serviceError()
-            val pkg = request.arguments["package"]?.jsonPrimitive?.content
-                ?: return@exposeTool errorResult("Missing 'package'")
-            val intent = svc.packageManager.getLaunchIntentForPackage(pkg)
-                ?: return@exposeTool errorResult("No launcher activity found for $pkg")
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val pkg = request.arguments["package"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            if (!LaunchFailurePolicy.validPackage(pkg))
+                return@exposeTool launchFailure("INVALID_PACKAGE")
+
+            val svc = getService()
+                ?: return@exposeTool launchFailure("ACCESSIBILITY_UNAVAILABLE", pkg)
             try {
+                val intent = svc.packageManager.getLaunchIntentForPackage(pkg)
+                    ?: return@exposeTool launchFailure("NO_LAUNCHER", pkg)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 val route = ActivityLaunch.dispatch(svc, intent)
                 val active = ActivityLaunch.awaitPackage(pkg)
-                val evidence = LaunchEvidence.result(pkg, active, route)
-                CallToolResult(content = listOf(TextContent(json.encodeToString(evidence))),
-                    isError = active != pkg)
+                if (active != pkg) {
+                    return@exposeTool launchFailure(
+                        LaunchFailurePolicy.foregroundCode(active, getService() != null),
+                        pkg,
+                        active
+                    )
+                }
+                CallToolResult(
+                    content = listOf(TextContent(json.encodeToString(LaunchEvidence.result(pkg, active, route)))),
+                    isError = false
+                )
+            } catch (e: CancellationException) {
+                // Task stop/pause is NOT a failed app launch.
+                throw e
+            } catch (e: IllegalStateException) {
+                if (e.message?.startsWith("STALE_TASK") == true ||
+                    e.message?.startsWith("STALE_UI") == true) throw e
+                launchFailure(LaunchFailurePolicy.exceptionCode(e), pkg)
             } catch (e: Exception) {
-                errorResult("Failed to launch $pkg: ${e.message}")
+                launchFailure(LaunchFailurePolicy.exceptionCode(e), pkg)
             }
         }
     }

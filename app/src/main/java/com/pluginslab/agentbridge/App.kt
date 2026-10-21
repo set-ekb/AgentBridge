@@ -14,6 +14,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         com.pluginslab.agentbridge.agent.Diagnostics.init(this)
+        com.pluginslab.agentbridge.agent.Diagnostics.closeAbandonedToolCalls()
         com.pluginslab.agentbridge.agent.Diagnostics.record("app_start", "ready", source = "bridge")
         installCrashHandler()
         registerActivityLifecycleCallbacks(com.pluginslab.agentbridge.agent.ActivityLaunch)
