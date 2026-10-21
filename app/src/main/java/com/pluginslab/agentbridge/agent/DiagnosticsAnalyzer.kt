@@ -62,7 +62,10 @@ object DiagnosticsAnalyzer {
         val events = recent.mapNotNull { line ->
             try {
                 val obj = json.parseToJsonElement(line) as? JsonObject
-                    ?: return@mapNotNull null.also { malformed++ }
+                if (obj == null) {
+                    malformed++
+                    return@mapNotNull null
+                }
                 val kind = obj.string("event")
                 val time = obj.long("time") ?: 0L
                 if (kind !in validEvents || time <= 0L) {
