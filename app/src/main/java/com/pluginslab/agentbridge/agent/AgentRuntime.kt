@@ -185,6 +185,7 @@ object AgentRuntime {
                         })
                     })
                     var uiContext = UiContextPolicy(context.packageName)
+                    var launchNeedsRecheck = false
                     val initialPackage = ActivityLaunch.activePackage()
                     uiContext.acknowledge(initialPackage)
                     val freshScreen = if(resume!=null) readTreeReady(buildJsonObject {}) else null
@@ -299,6 +300,10 @@ object AgentRuntime {
                             }
                             val activeBefore = if (name in UiContextPolicy.inspections) ActivityLaunch.activePackage() else null
                             var rejected = uiContext.reject(name, args, activeBefore)
+                            if (launchNeedsRecheck && name in AgentPolicy.actions) rejected = buildJsonObject {
+                                put("isError", true)
+                                put("message", "Запуск предыдущего приложения не подтверждён. Сначала проверь текущее окно через get_active_window_info или get_ui_tree. Действие не выполнено.")
+                            }
                             if(needsRevisionAck && name in AgentPolicy.actions) rejected=buildJsonObject {
                                 put("isError",true);put("message","Сначала примени актуальные условия через agent_apply_revision. Действие не выполнено.")
                             }
@@ -370,13 +375,18 @@ object AgentRuntime {
                             }
                             if (rejected == null && outcome["isError"]?.jsonPrimitive?.booleanOrNull != true) {
                                 if (name in setOf("launch_app", "get_active_window_info", "wait_for_window")) {
-                                    uiContext.acknowledge(ActivityLaunch.activePackage())
+                                    val current = ActivityLaunch.activePackage()
+                                    uiContext.acknowledge(current)
+                                    if (!current.isNullOrBlank() && current != context.packageName) {
+                                        launchNeedsRecheck = false
+                                    }
                                 }
                                 if (name in UiContextPolicy.snapshots && activeBefore != null && activeBefore == ActivityLaunch.activePackage()) {
                                     uiContext.acknowledge(activeBefore)
                                     // Read only actual AccessibilityNodeInfo.viewIdResourceName values.
                                     // A resource ID written inside a TextView or the task is not evidence.
                                     uiContext.observe(activeBefore, NodeRegistry.resourceIds())
+                                    launchNeedsRecheck = false
                                 }
                             }
                             var repeatedRead = 0
@@ -425,6 +435,8 @@ object AgentRuntime {
                                         ?.jsonPrimitive?.contentOrNull.orEmpty()
                                 }.getOrDefault("").takeIf { it.matches(Regex("[A-Z_]{3,40}")) }
                                     ?: "UNCLASSIFIED"
+                                launchNeedsRecheck = true
+                                uiContext = UiContextPolicy(context.packageName)
                                 Diagnostics.record("tool_error", "launch_unverified",
                                     detail = failureCode, step = step + 1,
                                     attemptId = diagnosticAttemptId, actionId = diagnosticActionId)
