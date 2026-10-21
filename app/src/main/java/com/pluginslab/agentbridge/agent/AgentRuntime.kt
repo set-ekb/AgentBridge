@@ -401,9 +401,11 @@ object AgentRuntime {
                             checkpoint?.let { saveCheckpoint(CheckpointRules.after(it,name,observedPackage.orEmpty(),
                                 outcome["isError"]?.jsonPrimitive?.booleanOrNull==true || rejected!=null,
                                 name=="get_ui_tree" && outcome["loading_hint"]==null && observedPackage!=null && NodeRegistry.semanticSignature(observedPackage).isNotBlank())) }
-                            toolCompletion = ToolCompletionPolicy.responseStatus(
-                                rejected != null, outcome["isError"]?.jsonPrimitive?.booleanOrNull == true
-                            )
+                            toolCompletion = when {
+                                rejected != null -> "rejected"
+                                outcome["isError"]?.jsonPrimitive?.booleanOrNull == true -> "error"
+                                else -> "ok"
+                            }
                             store?.event("Ответ: $name · ${if(outcome["isError"]?.jsonPrimitive?.booleanOrNull==true) "ошибка" else "получен"}")
                             val entry = buildJsonObject {
                                 put("tool",name);put("arguments",args);put("duration_ms",SystemClock.elapsedRealtime()-started);put("result",outcome)
