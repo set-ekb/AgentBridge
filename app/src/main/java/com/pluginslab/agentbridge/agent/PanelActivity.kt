@@ -49,7 +49,7 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var checkpoints: LinearLayout
     private lateinit var memoryList: LinearLayout
     private lateinit var memorySearch: EditText
-    private var memoryVisibleLimit=60
+    private var memoryVisibleLimit=UiDisplayRules.MEMORY_PAGE_SIZE
     private var lastMemoryQuery=""
     private lateinit var journal: TextView
     private lateinit var history: TextView
@@ -161,8 +161,7 @@ open class PanelActivity: AppCompatActivity() {
         try { build() } finally { column=parent }
     }
     private fun buildNavigation(root: LinearLayout) {
-        val titles=listOf("Агент","Память","Настр.","Журнал","Статус")
-        val names=listOf("Агент","Память","Настройки","Журнал","Состояние")
+        val tabs=UiDisplayRules.tabs
         val icons=listOf(
             android.R.drawable.ic_menu_send,
             android.R.drawable.ic_menu_agenda,
@@ -175,12 +174,12 @@ open class PanelActivity: AppCompatActivity() {
             background=panelBg(Color.rgb(12,22,16),border,15)
             setPadding(dp(2),dp(3),dp(2),dp(3))
         }
-        titles.forEachIndexed { i,name ->
+        tabs.forEachIndexed { i,item ->
             val tab=LinearLayout(this).apply {
                 orientation=LinearLayout.VERTICAL
                 gravity=android.view.Gravity.CENTER
                 minimumHeight=dp(54)
-                contentDescription=names[i]
+                contentDescription=item.accessible
             }
             val icon=ImageView(this).apply {
                 setImageResource(icons[i])
@@ -188,7 +187,7 @@ open class PanelActivity: AppCompatActivity() {
                 contentDescription=null
             }
             tab.addView(icon,LinearLayout.LayoutParams(dp(19),dp(19)))
-            tab.addView(basicText(name,10f,muted).apply {
+            tab.addView(basicText(item.short,10f,muted).apply {
                 gravity=android.view.Gravity.CENTER
                 isSingleLine=true
                 setPadding(0,dp(4),0,0)
@@ -710,7 +709,7 @@ open class PanelActivity: AppCompatActivity() {
     } }
     private fun refreshMemory() { if(!::memoryList.isInitialized) return;action {
         val query=memorySearch.text.toString().trim()
-        if(query!=lastMemoryQuery) { memoryVisibleLimit=60;lastMemoryQuery=query }
+        if(query!=lastMemoryQuery) { memoryVisibleLimit=UiDisplayRules.MEMORY_PAGE_SIZE;lastMemoryQuery=query }
         val entries=withContext(Dispatchers.IO) {
             store.entries().filter {
                 query.isBlank() || (it.title+" "+it.content+" "+it.kind+" "+it.source).contains(query,true)
@@ -747,7 +746,7 @@ open class PanelActivity: AppCompatActivity() {
         }
         if(entries.size>memoryVisibleLimit) {
             memoryList.addView(smallButton("Показать ещё · ${entries.size-memoryVisibleLimit}") {
-                memoryVisibleLimit+=60;refreshMemory()
+                memoryVisibleLimit=UiDisplayRules.nextMemoryLimit(memoryVisibleLimit,entries.size);refreshMemory()
             },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
         }
     } }
@@ -881,7 +880,7 @@ open class PanelActivity: AppCompatActivity() {
             "Пока нет событий. Переключись в другое приложение и вернись."
         else events.joinToString("\n\n") { e ->
             val origin=if(e.source=="vector_hint") "Vector (не подтверждён)" else "Android"
-            val activity=if(fullEventNames) e.activity else e.activity.substringAfterLast('.')
+            val activity=UiDisplayRules.activityName(e.activity,fullEventNames)
             "#${e.id}  ·  $origin  ·  ${e.type}\n${e.packageName}"+
                 if(activity.isNotBlank()) "\n$activity" else ""
         }
