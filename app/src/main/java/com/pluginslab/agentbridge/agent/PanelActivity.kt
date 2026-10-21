@@ -5,6 +5,9 @@ import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -51,6 +54,8 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var appEventHistory: TextView
     private lateinit var hookDiagnosticHistory: TextView
     private lateinit var healthSummary: TextView
+    private lateinit var journalOverview: TextView
+    private val navViews=mutableListOf<LinearLayout>()
     private lateinit var provider: Spinner
     private lateinit var key: EditText
     private lateinit var keyStatus: TextView
@@ -71,7 +76,138 @@ open class PanelActivity: AppCompatActivity() {
     private val navy=Color.rgb(7,13,9)
     private val white=Color.rgb(238,245,252)
     private val mint=Color.rgb(142,211,159)
+    private val surface=Color.rgb(17,29,22)
+    private val surfaceAlt=Color.rgb(22,38,28)
+    private val border=Color.rgb(46,73,54)
+    private val muted=Color.rgb(155,181,160)
     private fun dp(n: Int)=(n*resources.displayMetrics.density).toInt()
+    private fun panelBg(color: Int = surface, outline: Int = border, radius: Int = 14): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius=dp(radius).toFloat()
+            setStroke(dp(1).coerceAtLeast(1),outline)
+        }
+    private fun basicText(value: String,sp: Float,color: Int = white): TextView =
+        TextView(this).apply {
+            text=value;textSize=sp;setTextColor(color)
+            includeFontPadding=false
+        }
+    private fun smallButton(title: String,accent: Boolean=false,callback: ()->Unit): Button =
+        Button(this).apply {
+            text=title;isAllCaps=false;textSize=13f
+            minHeight=dp(45);minimumHeight=dp(45)
+            minWidth=0;minimumWidth=0
+            setPadding(dp(10),0,dp(10),0)
+            setTextColor(if(accent) navy else white)
+            backgroundTintList=null
+            background=panelBg(if(accent) mint else surfaceAlt,if(accent) mint else border,11)
+            elevation=0f
+            setOnClickListener { callback() }
+        }
+    private fun actionPair(
+        left: String, leftAction: ()->Unit,
+        right: String, rightAction: ()->Unit,
+        accentLeft: Boolean=false
+    ) {
+        val row=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        column.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(7);bottomMargin=dp(6) })
+        row.addView(smallButton(left,accentLeft,leftAction),
+            LinearLayout.LayoutParams(0,dp(46),1f).apply { rightMargin=dp(5) })
+        row.addView(smallButton(right,false,rightAction),
+            LinearLayout.LayoutParams(0,dp(46),1f).apply { leftMargin=dp(5) })
+    }
+    /**
+     * Disclosure sections keep heavy journal/history views out of the initial viewport.
+     * Content remains in memory and expands without a new database/network request.
+     */
+    private fun section(title: String, subtitle: String = "", open: Boolean=false, build: ()->Unit) {
+        val parent=column
+        val card=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            background=panelBg()
+            setPadding(dp(12),dp(5),dp(12),dp(10))
+        }
+        parent.addView(card,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(10) })
+        val header=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL
+            minimumHeight=dp(52)
+        }
+        val titles=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
+        titles.addView(basicText(title,15f,white).apply { setTypeface(null,Typeface.BOLD) })
+        if(subtitle.isNotBlank()) titles.addView(basicText(subtitle,11f,muted).apply {
+            setPadding(0,dp(5),0,0)
+        })
+        header.addView(titles,LinearLayout.LayoutParams(0,-2,1f))
+        val arrow=basicText(if(open) "⌄" else "›",22f,mint).apply {
+            textAlignment=View.TEXT_ALIGNMENT_CENTER
+            contentDescription="Развернуть или свернуть"
+        }
+        header.addView(arrow,LinearLayout.LayoutParams(dp(30),-2))
+        card.addView(header)
+        val content=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            visibility=if(open) View.VISIBLE else View.GONE
+        }
+        card.addView(content)
+        header.setOnClickListener {
+            content.visibility=if(content.visibility==View.VISIBLE) View.GONE else View.VISIBLE
+            arrow.text=if(content.visibility==View.VISIBLE) "⌄" else "›"
+        }
+        header.contentDescription=title+(if(subtitle.isNotBlank()) ". "+subtitle else "")
+        column=content
+        try { build() } finally { column=parent }
+    }
+    private fun buildNavigation(root: LinearLayout) {
+        val titles=listOf("Агент","Память","Настр.","Журнал","Статус")
+        val names=listOf("Агент","Память","Настройки","Журнал","Состояние")
+        val icons=listOf(
+            android.R.drawable.ic_menu_send,
+            android.R.drawable.ic_menu_agenda,
+            android.R.drawable.ic_menu_manage,
+            android.R.drawable.ic_menu_recent_history,
+            android.R.drawable.ic_menu_info_details
+        )
+        val bar=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            background=panelBg(Color.rgb(12,22,16),border,15)
+            setPadding(dp(2),dp(3),dp(2),dp(3))
+        }
+        titles.forEachIndexed { i,name ->
+            val tab=LinearLayout(this).apply {
+                orientation=LinearLayout.VERTICAL
+                gravity=android.view.Gravity.CENTER
+                minimumHeight=dp(54)
+                contentDescription=names[i]
+            }
+            val icon=ImageView(this).apply {
+                setImageResource(icons[i])
+                setColorFilter(muted)
+                contentDescription=null
+            }
+            tab.addView(icon,LinearLayout.LayoutParams(dp(19),dp(19)))
+            tab.addView(basicText(name,10f,muted).apply {
+                gravity=android.view.Gravity.CENTER
+                isSingleLine=true
+                setPadding(0,dp(4),0,0)
+            },LinearLayout.LayoutParams(-1,-2))
+            tab.setOnClickListener { showTab(i) }
+            navViews.add(tab)
+            bar.addView(tab,LinearLayout.LayoutParams(0,dp(57),1f))
+        }
+        root.addView(bar,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(5) })
+    }
+    private fun highlightNavigation(index: Int) {
+        navViews.forEachIndexed { i,tab ->
+            val selected=i==index
+            tab.background=if(selected) panelBg(surfaceAlt,Color.rgb(66,112,79),11) else null
+            val icon=tab.getChildAt(0) as ImageView
+            icon.setColorFilter(if(selected) mint else muted)
+            val title=tab.getChildAt(1) as TextView
+            title.setTextColor(if(selected) mint else muted)
+            title.setTypeface(null,if(selected) Typeface.BOLD else Typeface.NORMAL)
+            tab.isSelected=selected
+        }
+    }
     private val speech=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         if(r.resultCode==RESULT_OK) {
             val text=r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
@@ -118,11 +254,40 @@ open class PanelActivity: AppCompatActivity() {
         savedInstanceStateTask=savedInstanceState?.getString("draft")
         Diagnostics.init(this)
         prefs=AgentPrefs(this)
-        val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
+        val root=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setBackgroundColor(navy)
+            setPadding(dp(10),dp(7),dp(10),dp(6))
+        }
+        val header=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(11),dp(9),dp(11),dp(9))
+            background=panelBg(Color.rgb(12,24,17),Color.rgb(29,54,38),13)
+        }
+        val top=LinearLayout(this).apply {
+            orientation=LinearLayout.HORIZONTAL
+            gravity=android.view.Gravity.CENTER_VERTICAL
+        }
+        top.addView(basicText("◆",17f,mint),LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(8) })
+        top.addView(basicText("AGENTBRIDGE",16f,white).apply { setTypeface(null,Typeface.BOLD) },
+            LinearLayout.LayoutParams(0,-2,1f))
+        top.addView(basicText("v0.8.7",11f,mint).apply {
+            setPadding(dp(8),dp(3),dp(8),dp(3))
+            background=panelBg(surfaceAlt,border,8)
+        })
+        header.addView(top)
+        modelLabel=basicText("",11f,muted).apply {
+            maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END
+            setPadding(0,dp(7),0,0)
+        }
+        header.addView(modelLabel)
+        status=basicText("Открываю разговор…",12f,mint).apply {
+            maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END
+            setPadding(0,dp(5),0,0)
+        }
+        header.addView(status)
+        root.addView(header,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(3) })
         column=root
-        label("AGENT / BRIDGE  0.8.6",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
-        modelLabel=label("",11)
-        status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
         fun control(text: String,action: ()->Unit)=Button(this).apply {
             this.text=text;isAllCaps=false;textSize=13f;minHeight=dp(48);setTextColor(mint)
@@ -268,22 +433,7 @@ open class PanelActivity: AppCompatActivity() {
             label("Доступны агенту: get_diagnostics_summary, get_recent_errors, check_bridge_health, analyze_api_failures, analyze_tool_performance, inspect_hook_pipeline.",12)
             label("Проверка не вызывает API, не изменяет систему и не запускает автоматическое исправление. Подробный экспорт: вкладка «Журнал».",12)
         }
-        val nav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        listOf("Агент","Память","Настройки","Журнал","Состояние").forEachIndexed { i,title ->
-            val b=Button(this).apply {
-                text=title;isAllCaps=false;textSize=12f;minimumWidth=0;minWidth=0
-                setTextColor(white)
-                backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25))
-                setPadding(dp(3),dp(8),dp(3),dp(8))
-                setOnClickListener { showTab(i) }
-            }
-            nav.addView(b,LinearLayout.LayoutParams(dp(101),-2))
-        }
-        if(!intent.getBooleanExtra("compact",false)) {
-            val bar=HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled=false }
-            bar.addView(nav)
-            root.addView(bar)
-        }
+        if(!intent.getBooleanExtra("compact",false)) buildNavigation(root)
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
         refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics()
@@ -332,6 +482,7 @@ open class PanelActivity: AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) { if(::taskInput.isInitialized) outState.putString("draft",taskInput.text.toString());super.onSaveInstanceState(outState) }
     private fun showTab(index: Int) {
         activeTab=index;pageViews.forEachIndexed { i,v -> v.visibility=if(i==index) View.VISIBLE else View.GONE }
+        highlightNavigation(index)
         if(index==0) refreshTasks();if(index==1) refreshMemory();if(index==3) refreshHistory()
         if(index==4) refreshHealthStatus()
     }
