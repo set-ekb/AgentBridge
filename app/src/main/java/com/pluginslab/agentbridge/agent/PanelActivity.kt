@@ -50,6 +50,7 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var memoryList: LinearLayout
     private lateinit var memorySearch: EditText
     private var memoryVisibleLimit=UiDisplayRules.MEMORY_PAGE_SIZE
+    private var memoryQueryGeneration=0
     private var lastMemoryQuery=""
     private lateinit var journal: TextView
     private lateinit var history: TextView
@@ -502,7 +503,7 @@ open class PanelActivity: AppCompatActivity() {
         if(!intent.getBooleanExtra("compact",false)) buildNavigation(root)
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
-        refreshTasks();refreshMemory();refreshHookDiagnostics();refreshJournalOverview()
+        refreshTasks();refreshMemory()
     }
     private fun agentPage() {
         val page=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }
@@ -690,7 +691,7 @@ open class PanelActivity: AppCompatActivity() {
         pauseButton.visibility=if(view.task!=null && !IntentRules.isTerminal(view.task.status)) View.VISIBLE else View.GONE
         pauseButton.text=if(s.running) "Пауза" else if(view.task?.status=="WAIT_USER") "Ответить" else "Продолжить"
         modelLabel.text="${labels[ids.indexOf(prefs.provider)]} / ${prefs.modelFor(prefs.provider)} · ${if(BridgeAccessibilityService.instance!=null) "Bridge ●" else "Bridge ○"}"
-        if(wasRunning && !s.running) { refreshTasks();refreshHistory() }
+        if(wasRunning && !s.running) refreshTasks()
         wasRunning=s.running
     }
     private fun refreshTasks() { if(!::checkpoints.isInitialized) return;action {
@@ -709,12 +710,14 @@ open class PanelActivity: AppCompatActivity() {
     } }
     private fun refreshMemory() { if(!::memoryList.isInitialized) return;action {
         val query=memorySearch.text.toString().trim()
+        val generation=++memoryQueryGeneration
         if(query!=lastMemoryQuery) { memoryVisibleLimit=UiDisplayRules.MEMORY_PAGE_SIZE;lastMemoryQuery=query }
         val entries=withContext(Dispatchers.IO) {
             store.entries().filter {
                 query.isBlank() || (it.title+" "+it.content+" "+it.kind+" "+it.source).contains(query,true)
             }
         }
+        if(generation!=memoryQueryGeneration) return@action
         memoryList.removeAllViews()
         if(entries.isEmpty()) memoryList.addView(basicText("Ничего не найдено. Измени запрос или добавь запись.",13f,muted).apply {
             setPadding(dp(8),dp(14),dp(8),dp(14))
@@ -861,18 +864,22 @@ open class PanelActivity: AppCompatActivity() {
 
     private fun refreshHookDiagnostics() {
         if (!::hookDiagnosticHistory.isInitialized) return
-        val records=Diagnostics.recentHooks(20)
-        hookDiagnosticHistory.text=if(records.isEmpty())
-            "Нет событий от хуков. Откройте Vector → Журналы; проверьте загрузку модуля и Scope."
-        else records.joinToString("\n") { raw ->
-            val obj=runCatching { org.json.JSONObject(raw) }.getOrNull()
-            if(obj==null) "Некорректная запись диагностики"
-            else listOf(
-                obj.optString("event"), obj.optString("status"),
-                obj.optString("package_name"), obj.optString("activity")
-            ).filter { it.isNotBlank() }.joinToString(" · ")
+        action {
+            val records=withContext(Dispatchers.IO) { Diagnostics.recentHooks(20) }
+            hookDiagnosticHistory.text=if(records.isEmpty())
+                "Сигналы хуков не наблюдались. Проверь Vector → Журналы и область действия."
+            else records.joinToString("\n\n") { raw ->
+                val obj=runCatching { org.json.JSONObject(raw) }.getOrNull()
+                if(obj==null) "Некорректная запись"
+                else listOf(
+                    obj.optString("event"),obj.optString("status"),
+                    obj.optString("package_name"),
+                    obj.optString("activity").substringAfterLast('.')
+                ).filter { it.isNotBlank() }.joinToString(" · ")
+            }
         }
     }
+
     private fun refreshAppEvents() {
         if (!::appEventHistory.isInitialized) return
         val events=AppEventTimeline.recent(limit=25)
