@@ -23,7 +23,7 @@ import kotlinx.serialization.json.*
 import java.util.Locale
 import java.io.File
 
-/** Four stable surfaces. Model configuration never shares a scrolling page with the task. */
+/** Five stable surfaces. Model configuration never shares a scrolling page with the task. */
 open class PanelActivity: AppCompatActivity() {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main)
     private lateinit var prefs: AgentPrefs
