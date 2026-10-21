@@ -53,7 +53,9 @@ object Diagnostics {
         packageName: String = "",
         activity: String = "",
         detail: String = "",
-        step: Int = -1
+        step: Int = -1,
+        attemptId: String = "",
+        actionId: String = ""
     ) {
         if (type !in allowed || source !in sources) return
         val context = app ?: return
@@ -68,6 +70,11 @@ object Diagnostics {
             safeLabel(detail).takeIf { it.isNotBlank() }?.let { put("detail", it) }
             if (durationMs >= 0) put("duration_ms", durationMs)
             if (step >= 0) put("step", step)
+            // Random opaque correlation IDs; never store user's goal, UI or tool arguments.
+            attemptId.takeIf { it.matches(Regex("[a-zA-Z0-9_-]{1,64}")) }
+                ?.let { put("attempt_id", it) }
+            actionId.takeIf { it.matches(Regex("[a-zA-Z0-9_-]{1,64}")) }
+                ?.let { put("action_id", it) }
         }.toString() + "\n"
         runCatching {
             val file = File(context.filesDir, FILE_NAME)
