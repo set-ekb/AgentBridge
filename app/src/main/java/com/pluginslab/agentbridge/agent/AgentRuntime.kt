@@ -342,6 +342,9 @@ object AgentRuntime {
                             Diagnostics.record("tool_start", "start", detail = name, step = step + 1,
                                 attemptId = diagnosticAttemptId, actionId = diagnosticActionId)
                             val started = SystemClock.elapsedRealtime()
+                            var toolCompletion = "interrupted"
+                            var toolStage = "execute"
+                            try {
                             var outcome = rejected ?: if (name == "agent_delay") {
                                 val seconds = args["seconds"]?.jsonPrimitive?.intOrNull ?: error("Не задана задержка")
                                 require(seconds in 1..30) { "Задержка должна быть от 1 до 30 секунд" }
@@ -358,6 +361,7 @@ object AgentRuntime {
                                     }
                                 } else LocalTools.call(name,args)
                             }
+                            toolStage = "inspect"
                             ensureActive()
                             if(rejected == null && name in AgentPolicy.actions) {
                                 if(name == "tap_node" && outcome["isError"]?.jsonPrimitive?.booleanOrNull != true)
@@ -397,10 +401,9 @@ object AgentRuntime {
                             checkpoint?.let { saveCheckpoint(CheckpointRules.after(it,name,observedPackage.orEmpty(),
                                 outcome["isError"]?.jsonPrimitive?.booleanOrNull==true || rejected!=null,
                                 name=="get_ui_tree" && outcome["loading_hint"]==null && observedPackage!=null && NodeRegistry.semanticSignature(observedPackage).isNotBlank())) }
-                            Diagnostics.record("tool_finish",
-                                status = when { rejected != null -> "rejected"; outcome["isError"]?.jsonPrimitive?.booleanOrNull == true -> "error"; else -> "ok" },
-                                detail = name, durationMs = SystemClock.elapsedRealtime() - started, step = step + 1,
-                                attemptId = diagnosticAttemptId, actionId = diagnosticActionId)
+                            toolCompletion = ToolCompletionPolicy.responseStatus(
+                                rejected != null, outcome["isError"]?.jsonPrimitive?.booleanOrNull == true
+                            )
                             store?.event("Ответ: $name · ${if(outcome["isError"]?.jsonPrimitive?.booleanOrNull==true) "ошибка" else "получен"}")
                             val entry = buildJsonObject {
                                 put("tool",name);put("arguments",args);put("duration_ms",SystemClock.elapsedRealtime()-started);put("result",outcome)
@@ -411,12 +414,39 @@ object AgentRuntime {
                             mutable.update { it.copy(log = (it.log + (if (it.log.isEmpty()) "" else "\n\n") + safe).takeLast(400000)) }
                             check(repeatedRead <= 4) { "Задача остановлена: агент повторяет ту же проверку на неизменившемся экране. Подробности — в журнале." }
                             if (name == "launch_app" && outcome["isError"]?.jsonPrimitive?.booleanOrNull == true) {
-                                error("Запуск приложения не подтверждён: оно не стало активным. Подробности — в журнале.")
+                                // The model must receive the failed launch and inspect the real
+                                // foreground screen. Do not abort the entire task or retry blindly.
+                                val failureCode = runCatching {
+                                    val response = outcome["content"]?.jsonArray?.firstOrNull()
+                                        ?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull.orEmpty()
+                                    Json.parseToJsonElement(response).jsonObject["error_code"]
+                                        ?.jsonPrimitive?.contentOrNull.orEmpty()
+                                }.getOrDefault("").takeIf { it.matches(Regex("[A-Z_]{3,40}")) }
+                                    ?: "UNCLASSIFIED"
+                                Diagnostics.record("tool_error", "launch_unverified",
+                                    detail = failureCode, step = step + 1,
+                                    attemptId = diagnosticAttemptId, actionId = diagnosticActionId)
                             }
                             val bounded = if (outcome.toString().length > 60000) buildJsonObject {
                                 put("truncated",true); put("text",outcome.toString().take(60000))
                             } else outcome
+                            toolStage = "complete"
                             replies.add(AgentReply(call,bounded))
+                            } catch (e: CancellationException) {
+                                toolCompletion = "cancelled"
+                                throw e
+                            } catch (e: Exception) {
+                                toolCompletion = "error"
+                                Diagnostics.record("tool_error", toolStage,
+                                    detail = e.javaClass.simpleName, step = step + 1,
+                                    attemptId = diagnosticAttemptId, actionId = diagnosticActionId)
+                                throw e
+                            } finally {
+                                Diagnostics.record("tool_finish", toolCompletion,
+                                    detail = name, durationMs = SystemClock.elapsedRealtime() - started,
+                                    step = step + 1, attemptId = diagnosticAttemptId,
+                                    actionId = diagnosticActionId)
+                            }
                         }
                         engine.accept(replies)
                         if (step == MAX_STEPS-1) error("Достигнут предел $MAX_STEPS шагов модели. Задача не подтверждена как завершённая; уже выполненные действия не отменяются. Подробности — в журнале.")
