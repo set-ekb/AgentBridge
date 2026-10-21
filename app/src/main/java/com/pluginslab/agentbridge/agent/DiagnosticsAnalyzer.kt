@@ -107,7 +107,7 @@ object DiagnosticsAnalyzer {
         }
     }
     private fun isError(e: Event) = e.kind in errors ||
-        (e.kind == "tool_finish" && e.status in setOf("error", "rejected"))
+        (e.kind == "tool_finish" && e.status in setOf("error", "rejected", "interrupted"))
 
     fun summary(w: Window): JsonObject = buildJsonObject {
         put("coverage", coverage(w))
