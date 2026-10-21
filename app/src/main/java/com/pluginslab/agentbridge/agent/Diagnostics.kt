@@ -88,6 +88,42 @@ object Diagnostics {
         }
     }
 
+    /**
+     * On process restart, mark any tool_start without tool_finish as interrupted.
+     * A process kill bypasses coroutine finally; this is recovery of a trace,
+     * not an attempt to repeat the action. Never parse or record tool arguments.
+     */
+    @Synchronized fun closeAbandonedToolCalls() {
+        val context = app ?: return
+        runCatching {
+            val file = File(context.filesDir, FILE_NAME)
+            if (!file.isFile) return@runCatching
+            val pending = linkedMapOf<String, Triple<String, String, Int>>()
+            file.readLines(Charsets.UTF_8).takeLast(2000).forEach { line ->
+                val obj = runCatching { JSONObject(line) }.getOrNull() ?: return@forEach
+                val id = obj.optString("action_id")
+                    .takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) } ?: return@forEach
+                when (obj.optString("event")) {
+                    "tool_start" -> pending[id] = Triple(
+                        safeLabel(obj.optString("detail")),
+                        obj.optString("attempt_id").takeIf {
+                            it.matches(Regex("[A-Za-z0-9_-]{1,64}"))
+                        }.orEmpty(),
+                        obj.optInt("step", -1)
+                    )
+                    "tool_finish" -> pending.remove(id)
+                }
+            }
+            pending.entries.takeLast(32).forEach { (id, fields) ->
+                val (tool, attempt, step) = fields
+                record("tool_error", "orphaned", detail = tool,
+                    step = step, attemptId = attempt, actionId = id)
+                record("tool_finish", "interrupted", detail = tool,
+                    step = step, attemptId = attempt, actionId = id)
+            }
+        }
+    }
+
     /** Recent persisted events (unlike the in-memory UI timeline, survive process restarts). */
     @Synchronized fun recent(limit: Int = 30): List<String> {
         val context = app ?: return emptyList()
