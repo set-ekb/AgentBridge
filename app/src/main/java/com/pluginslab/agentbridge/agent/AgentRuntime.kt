@@ -386,7 +386,7 @@ object AgentRuntime {
                                     // Read only actual AccessibilityNodeInfo.viewIdResourceName values.
                                     // A resource ID written inside a TextView or the task is not evidence.
                                     uiContext.observe(activeBefore, NodeRegistry.resourceIds())
-                                    launchNeedsRecheck = false
+                                    if (activeBefore != context.packageName) launchNeedsRecheck = false
                                 }
                             }
                             var repeatedRead = 0
