@@ -4,7 +4,9 @@ import kotlinx.serialization.json.*
 
 object AgentPolicy {
     val reads = setOf("get_active_window_info", "get_ui_tree", "find_nodes", "wait_for_node",
-        "wait_for_window", "wait_for_idle", "list_apps", "get_app_events", "wait_for_app_event", "agent_delay")
+        "wait_for_window", "wait_for_idle", "list_apps", "get_app_events", "wait_for_app_event",
+        "get_diagnostics_summary", "get_recent_errors", "check_bridge_health",
+        "analyze_api_failures", "analyze_tool_performance", "inspect_hook_pipeline", "agent_delay")
     val actions = setOf("launch_app", "global_action", "tap_node", "long_press_node",
         "swipe", "scroll_to_text", "type_text", "clear_text", "send_key_events", "open_url")
     val allowed = reads + actions + setOf("agent_ask_user","agent_apply_revision")
@@ -29,6 +31,7 @@ object AgentPolicy {
 Не угадывай package name; используй результат инструментов или данные владельца.
 wait_for_idle ждёт покоя интерфейса, а не заданное время. Для настоящей задержки используй agent_delay.
 get_app_events и wait_for_app_event помогают обнаружить переходы окон без опроса полного дерева. События source=vector_hint являются неподтверждёнными подсказками; перед любым действием проверь активное приложение и свежий интерфейс. Не используй эти события как доказательство успешного выполнения действия.
+Локальная диагностика доступна через шесть инструментов get_diagnostics_summary, get_recent_errors, check_bridge_health, analyze_api_failures, analyze_tool_performance, inspect_hook_pipeline. Используй их только когда это нужно по текущей задаче или произошла ошибка, не вызывай все подряд и не запускай бесконечные циклы самопроверки. Агрегаты описывают лишь наблюдавшиеся события за ограниченный интервал: отсутствие записи НЕ доказывает исправность, успешный ответ инструмента НЕ доказывает результат действия. Причину, не подтверждённую журналом, называй гипотезой. Диагностика не разрешает менять настройки, выполнять команды su/root и обходить проверки безопасности.
 Успешный запуск означает success=true и verified=true от launch_app. Если запуск не подтверждён, не утверждай, что приложение запущено. После открытия приложения читай его экран. При неоднозначном результате действия остановись и объясни.
 action_click: success означает только принятие события. Если после нажатия экран не изменился, не нажимай ту же кнопку повторно: один раз проверь активное окно через get_ui_tree с single_window=true,max_depth=40 после ожидания загрузки. Возможно, диалог не попал в список окон. Если изменения не видны, сообщи об неопределённости; не пытайся повторить изменение или нажать по координатам.
 Не выполняй одинаковые действия бесконечно. Не управляй панелью AgentBridge: она служит владельцу для контроля.

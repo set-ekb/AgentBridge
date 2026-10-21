@@ -19,10 +19,11 @@ import androidx.core.content.FileProvider
 import com.pluginslab.agentbridge.SettingsActivity
 import com.pluginslab.agentbridge.accessibility.BridgeAccessibilityService
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.*
 import java.util.Locale
 import java.io.File
 
-/** Four stable surfaces. Model configuration never shares a scrolling page with the task. */
+/** Five stable surfaces. Model configuration never shares a scrolling page with the task. */
 open class PanelActivity: AppCompatActivity() {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main)
     private lateinit var prefs: AgentPrefs
@@ -49,6 +50,7 @@ open class PanelActivity: AppCompatActivity() {
     private lateinit var history: TextView
     private lateinit var appEventHistory: TextView
     private lateinit var hookDiagnosticHistory: TextView
+    private lateinit var healthSummary: TextView
     private lateinit var provider: Spinner
     private lateinit var key: EditText
     private lateinit var keyStatus: TextView
@@ -118,7 +120,7 @@ open class PanelActivity: AppCompatActivity() {
         prefs=AgentPrefs(this)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
         column=root
-        label("AGENT / BRIDGE  0.8.5",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
+        label("AGENT / BRIDGE  0.8.6",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         modelLabel=label("",11)
         status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
@@ -254,12 +256,34 @@ open class PanelActivity: AppCompatActivity() {
                 withContext(Dispatchers.IO) { store.clearHistory() };refreshTasks();refreshHistory()
             } }
         }
-        val nav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        listOf("Агент","Память","Настройки","Журнал").forEachIndexed { i,title ->
-            val b=Button(this).apply { text=title;isAllCaps=false;textSize=12f;setTextColor(white);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25));setPadding(0,dp(8),0,dp(8));setOnClickListener { showTab(i) } }
-            nav.addView(b,LinearLayout.LayoutParams(0,-2,1f))
+        page {
+            label("Состояние",27,white)
+            label("Локальная диагностика · 24 часа",16,white)
+            label("Здесь отображаются только проверяемые технические сведения. Отсутствие ошибок в журнале не означает, что приложение исправно.",12)
+            healthSummary=label("Нажмите «Проверить состояние».",14).apply {
+                setTextIsSelectable(true)
+                typeface=android.graphics.Typeface.MONOSPACE
+            }
+            button("Проверить состояние",true) { refreshHealthStatus() }
+            label("Доступны агенту: get_diagnostics_summary, get_recent_errors, check_bridge_health, analyze_api_failures, analyze_tool_performance, inspect_hook_pipeline.",12)
+            label("Проверка не вызывает API, не изменяет систему и не запускает автоматическое исправление. Подробный экспорт: вкладка «Журнал».",12)
         }
-        if(!intent.getBooleanExtra("compact",false)) root.addView(nav)
+        val nav=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
+        listOf("Агент","Память","Настройки","Журнал","Состояние").forEachIndexed { i,title ->
+            val b=Button(this).apply {
+                text=title;isAllCaps=false;textSize=12f;minimumWidth=0;minWidth=0
+                setTextColor(white)
+                backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25))
+                setPadding(dp(3),dp(8),dp(3),dp(8))
+                setOnClickListener { showTab(i) }
+            }
+            nav.addView(b,LinearLayout.LayoutParams(dp(101),-2))
+        }
+        if(!intent.getBooleanExtra("compact",false)) {
+            val bar=HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled=false }
+            bar.addView(nav)
+            root.addView(bar)
+        }
         scope.launch { AgentRuntime.state.collect { render(it) } }
         scope.launch { ConversationHub.state.collect { renderConversation(it);render(AgentRuntime.state.value) } }
         refreshTasks();refreshMemory();refreshHistory();refreshHookDiagnostics()
@@ -309,6 +333,7 @@ open class PanelActivity: AppCompatActivity() {
     private fun showTab(index: Int) {
         activeTab=index;pageViews.forEachIndexed { i,v -> v.visibility=if(i==index) View.VISIBLE else View.GONE }
         if(index==0) refreshTasks();if(index==1) refreshMemory();if(index==3) refreshHistory()
+        if(index==4) refreshHealthStatus()
     }
     private fun network(block: suspend ()->Unit) {
         if(AgentRuntime.state.value.running || launching || operation?.isActive==true) return
@@ -507,6 +532,41 @@ open class PanelActivity: AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(send, "Отправить диагностический файл"))
+    }
+
+    private fun refreshHealthStatus() {
+        if(!::healthSummary.isInitialized) return
+        action {
+            val (health, summary) = withContext(Dispatchers.IO) {
+                val window=DiagnosticsAnalyzer.parse(Diagnostics.snapshotLines(),24)
+                DiagnosticsAnalyzer.health(window,BridgeAccessibilityService.instance!=null,AgentRuntime.state.value.running) to
+                    DiagnosticsAnalyzer.summary(window)
+            }
+            fun str(obj: JsonObject, key: String): String =
+                obj[key]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val a11y=when(str(health,"accessibility")) {
+                "connected" -> "подключена"
+                else -> "не подключена"
+            }
+            val journalState=when(str(health,"journal")) {
+                "events_observed" -> "есть технические события"
+                else -> "недостаточно данных"
+            }
+            val vectorState=when(str(health,"vector")) {
+                "hints_observed_unverified" -> "сигналы наблюдались (не проверены)"
+                else -> "не проверен / событий нет"
+            }
+            healthSummary.text=buildString {
+                append("Accessibility: ").append(a11y).append("\n")
+                append("Журнал: ").append(journalState).append("\n")
+                append("Vector: ").append(vectorState).append("\n")
+                append("API моделей: не проверено (запросы не отправляются)").append("\n")
+                append("Агент: ").append(if(AgentRuntime.state.value.running) "выполняет задачу" else "не выполняет задачу").append("\n")
+                append("Событий за 24 часа: ").append(str(health["coverage"]?.jsonObject ?: buildJsonObject {}, "event_count")).append("\n")
+                append("Ошибок и отклонений в журнале: ").append(str(summary,"errors_observed")).append("\n")
+                append("История может быть неполной из-за ротации журнала.")
+            }
+        }
     }
 
     private fun refreshHookDiagnostics() {

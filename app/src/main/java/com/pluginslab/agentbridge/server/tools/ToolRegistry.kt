@@ -1,6 +1,9 @@
 package com.pluginslab.agentbridge.server.tools
 
 import com.pluginslab.agentbridge.agent.AppEventTimeline
+import com.pluginslab.agentbridge.agent.Diagnostics
+import com.pluginslab.agentbridge.agent.DiagnosticsAnalyzer
+import com.pluginslab.agentbridge.agent.AgentRuntime
 import com.pluginslab.agentbridge.agent.ActionDispatch
 import com.pluginslab.agentbridge.agent.ActivityLaunch
 import com.pluginslab.agentbridge.agent.LaunchEvidence
@@ -35,6 +38,8 @@ import io.modelcontextprotocol.kotlin.sdk.TextContent
 import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
@@ -53,6 +58,7 @@ object ToolRegistry {
 
     fun registerAll(server: Server) {
         registerGetActiveWindowInfo(server)
+        registerDiagnosticAnalysis(server)
         registerAppEvents(server)
         registerWaitForAppEvent(server)
         registerGlobalAction(server)
@@ -128,6 +134,58 @@ object ToolRegistry {
             }
             root.recycle()
             jsonResult(result)
+        }
+    }
+
+    // --- local, read-only diagnostic analysis (same handlers for MCP and built-in AI) ---
+    private fun registerDiagnosticAnalysis(server: Server) {
+        val names = linkedMapOf(
+            "get_diagnostics_summary" to "Summarize bounded local technical events, task outcomes and counts. No raw logs or private content.",
+            "get_recent_errors" to "Group the latest error categories, status and time; no exception messages, UI text or API payloads.",
+            "check_bridge_health" to "Check observed Accessibility and journal state, and report unknown for unverified API/Vector components.",
+            "analyze_api_failures" to "Count observed model API errors including quota/503, with safe latency statistics, without making network calls.",
+            "analyze_tool_performance" to "Aggregate tool durations and error/rejected rates. A successful tool call does not confirm user task success.",
+            "inspect_hook_pipeline" to "Inspect observed Accessibility and Vector hint receiver stages; can't inspect Vector's internal logs."
+        )
+        names.forEach { (name, description) ->
+            server.exposeTool(
+                name = name,
+                description = description + " Read-only; accepts lookback hours 1..72.",
+                inputSchema = Tool.Input(properties = buildJsonObject {
+                    put("hours", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Lookback window: 1-72 hours, default 24")
+                        put("minimum", 1)
+                        put("maximum", 72)
+                    })
+                    if (name == "get_recent_errors") {
+                        put("limit", buildJsonObject {
+                            put("type", "integer")
+                            put("description", "Max error categories 1..30, default 15")
+                            put("minimum", 1)
+                            put("maximum", 30)
+                        })
+                    }
+                }, required = emptyList())
+            ) { request: CallToolRequest ->
+                val hours = (request.arguments["hours"]?.jsonPrimitive?.intOrNull ?: 24).coerceIn(1, 72)
+                val limit = (request.arguments["limit"]?.jsonPrimitive?.intOrNull ?: 15).coerceIn(1, 30)
+                val result = withContext(Dispatchers.IO) {
+                    val window = DiagnosticsAnalyzer.parse(Diagnostics.snapshotLines(), hours)
+                    when (name) {
+                        "get_diagnostics_summary" -> DiagnosticsAnalyzer.summary(window)
+                        "get_recent_errors" -> DiagnosticsAnalyzer.recentErrors(window, limit)
+                        "check_bridge_health" -> DiagnosticsAnalyzer.health(
+                            window, getService() != null, AgentRuntime.state.value.running
+                        )
+                        "analyze_api_failures" -> DiagnosticsAnalyzer.apiFailures(window)
+                        "analyze_tool_performance" -> DiagnosticsAnalyzer.toolPerformance(window)
+                        "inspect_hook_pipeline" -> DiagnosticsAnalyzer.hookPipeline(window)
+                        else -> buildJsonObject { put("status", "unknown") }
+                    }
+                }
+                jsonResult(result)
+            }
         }
     }
 
