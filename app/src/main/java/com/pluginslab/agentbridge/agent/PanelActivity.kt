@@ -120,7 +120,7 @@ open class PanelActivity: AppCompatActivity() {
         prefs=AgentPrefs(this)
         val root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setBackgroundColor(navy);setPadding(dp(12),dp(8),dp(12),dp(8)) }
         column=root
-        label("AGENT / BRIDGE  0.8.5",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
+        label("AGENT / BRIDGE  0.8.6",13,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         modelLabel=label("",11)
         status=label("Открываю разговор…",12,mint).apply { typeface=android.graphics.Typeface.MONOSPACE }
         val controls=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
