@@ -114,7 +114,7 @@ object Diagnostics {
                     "tool_finish" -> pending.remove(id)
                 }
             }
-            pending.entries.takeLast(32).forEach { (id, fields) ->
+            pending.entries.toList().takeLast(32).forEach { (id, fields) ->
                 val (tool, attempt, step) = fields
                 record("tool_error", "orphaned", detail = tool,
                     step = step, attemptId = attempt, actionId = id)
