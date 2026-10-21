@@ -90,6 +90,16 @@ object Diagnostics {
         }.getOrDefault(emptyList())
     }
 
+    /** Bounded raw input for the local analyzer; never return these lines to a model. */
+    @Synchronized fun snapshotLines(maxLines: Int = 1800): List<String> {
+        val context = app ?: return emptyList()
+        return runCatching {
+            val file = File(context.filesDir, FILE_NAME)
+            if (file.isFile) file.readLines(Charsets.UTF_8)
+                .takeLast(maxLines.coerceIn(1, 2400)) else emptyList()
+        }.getOrDefault(emptyList())
+    }
+
     /** Highlight hook states even if recent Accessibility events filled the UI timeline. */
     @Synchronized fun recentHooks(limit: Int = 20): List<String> {
         val context = app ?: return emptyList()
