@@ -139,12 +139,19 @@ class TaskManager:
                     latest = item
             if latest is not None and isinstance(latest["info"].get("error"), dict):
                 return {"state": "failed", "answer": "", "reason": "opencode_response_error"}
-            if latest is not None and session not in statuses:
-                parts = latest.get("parts")
-                text = "\n".join(str(p.get("text")) for p in (parts if isinstance(parts, list) else [])
-                                 if isinstance(p, dict) and p.get("type") == "text" and isinstance(p.get("text"), str))
-                if text.strip():
-                    return {"state": "done", "answer": text[-MAX_OUTPUT:]}
+            session_status = statuses.get(session)
+            busy = isinstance(session_status, dict) and session_status.get("type") != "idle"
+            if latest is not None and not busy:
+                finish = latest["info"].get("finish")
+                # An intermediate tool-call assistant message is NOT a
+                # completed task, even when the busy map briefly becomes empty.
+                if finish == "stop":
+                    parts = latest.get("parts")
+                    text = "\n".join(str(p.get("text")) for p in (parts if isinstance(parts, list) else [])
+                                     if isinstance(p, dict) and p.get("type") == "text" and isinstance(p.get("text"), str))
+                    if text.strip():
+                        return {"state": "done", "answer": text[-MAX_OUTPUT:]}
+                    return {"state": "failed", "answer": "", "reason": "no_text_response"}
             return {"state": "running", "answer": ""}
 
     def cancel(self, task_id: str):
