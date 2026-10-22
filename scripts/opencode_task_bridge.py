@@ -89,7 +89,7 @@ class TaskManager:
         finally:
             temp_path.unlink(missing_ok=True)
 
-    def create(self, task_id: str, prompt: str):
+    def create(self, task_id: str, prompt: str, *, disable_tools: bool = False):
         if not isinstance(prompt, str) or not 1 <= len(prompt) <= 16000:
             raise TaskFailure("invalid_prompt")
         with self.lock:
@@ -107,8 +107,12 @@ class TaskManager:
             # Persist before sending: a lost response must never cause re-execution.
             self._put(record)
             try:
-                self.api.request("/session/" + session_id + "/prompt_async",
-                    {"parts": [{"type": "text", "text": prompt}]})
+                request = {"parts": [{"type": "text", "text": prompt}]}
+                # For live smoke testing, disable all agent tools at the API
+                # level. Normal owner tasks keep OpenCode's own permissions.
+                if disable_tools:
+                    request["tools"] = {"*": False}
+                self.api.request("/session/" + session_id + "/prompt_async", request)
             except TaskFailure:
                 # May have been admitted by OpenCode. Do NOT retry automatically.
                 record["state"] = "unknown"
