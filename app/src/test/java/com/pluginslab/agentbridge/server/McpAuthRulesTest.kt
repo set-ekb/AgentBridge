@@ -24,6 +24,9 @@ class McpAuthRulesTest {
         assertFalse(McpAuthRules.allowed("/mcp/opencode", null, owner, opencode))
         assertFalse(McpAuthRules.allowed("/mcp/opencode-evil", "Bearer $opencode", owner, opencode))
         assertFalse(McpAuthRules.allowed("/mcp/opencode/../mcp", "Bearer $owner", owner, opencode))
+        assertFalse(McpAuthRules.allowed("/mcp/opencode/../mcp", "Bearer $opencode", owner, opencode))
+        assertFalse(McpAuthRules.allowed("/mcp/opencode%2f..%2fmcp", "Bearer $opencode", owner, opencode))
+        assertFalse(McpAuthRules.allowed("/mcp/opencode//mcp", "Bearer $opencode", owner, opencode))
     }
 
     @Test fun authorizationIsNotSubstringMatching() {
