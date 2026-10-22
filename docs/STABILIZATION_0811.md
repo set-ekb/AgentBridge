@@ -70,3 +70,17 @@ this patch fixes the two old open_url failures or the six UI-tool rejections.
 
 Status: REVIEW. Local checks pass; phone/live-provider validation remains open.
 Machine-readable current results: `VALIDATION.json`.
+
+
+## Signed device-test build — 2026-10-22
+
+- Build source: `f582289c59e7336cfdab9e739e0b6ca9edb56ad0`.
+- Manual workflow run: https://github.com/set-ekb/AgentBridge/actions/runs/39831665931 (#59), completed successfully.
+- Unit tests and debug compilation passed; both release APKs built successfully.
+- The existing permanent certificate matched the pinned repository secret; `apksigner verify --min-sdk-version 29` passed for both APKs.
+- Signed artifact: https://github.com/set-ekb/AgentBridge/actions/runs/39831665931/artifacts/12449127284 (retained until 2026-11-21).
+- Downloaded artifact ZIP SHA-256 verified: `d26ba80f99e093b26abc39f91fec4fda6facdf2ca8a6c9f8f988b35a6f01ffc6`.
+- AgentBridge.apk SHA-256 verified against bundled SHA256SUMS.txt: `0ffd9a60bc176bd29eb4bde1053bd1c2ae000a30ff05ccba52e43a40d0d54ffe`.
+- AgentBridge-Hooks.apk SHA-256: `b28aa18e4fdec04ecc2fe4323f45c0ae5781967d3aaddf5a9ad3705a3b486663`.
+- Application identity remains `com.pluginslab.agentbridge`, version `0.8.11-local`, versionCode 41. This is a stabilization test build, not a new numbered release.
+- GitHub Release publication was skipped; main was not changed. Device installation, compatibility with the certificate of the actual installed APK, and manual API wait/Stop/resume checks remain unverified. Validation status remains REVIEW.
