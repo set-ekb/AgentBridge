@@ -21,6 +21,7 @@ class AgentService: Service() {
         const val CANCEL="agentbridge.CANCEL"
         const val PAUSE="agentbridge.PAUSE"
         const val RESUME="agentbridge.RESUME"
+        const val OPEN_CODE_START="agentbridge.OPENCODE_START"
         private const val MESSAGE="agentbridge.MESSAGE"
         private const val REPLY="agentbridge.REPLY"
         private const val REPLY_TEXT="owner_reply"
@@ -50,7 +51,7 @@ class AgentService: Service() {
         fun control(action: String,id: Int)=PendingIntent.getService(this,id,Intent(this,AgentService::class.java).setAction(action).putExtra("command_epoch",AgentPrefs(this).conversationEpoch).putExtra("command_id","notification:$action:${task?.id}:${task?.taskRevision}:${task?.status}:${AgentPrefs(this).conversationEpoch}"),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         if(AgentRuntime.state.value.running) builder.addAction(0,"Пауза",control(PAUSE,1))
         else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED","WAIT_USER")) builder.addAction(0,"Продолжить",control(RESUME,2))
-        if(AgentRuntime.state.value.running || state.routing || task?.status=="WAIT_USER") builder.addAction(0,"Стоп",control(CANCEL,3))
+        if(AgentRuntime.state.value.running || state.routing || task?.status=="WAIT_USER" || task?.provider=="opencode" && task.status in setOf("QUEUED","DISPATCHING","RUNNING","STOP_REQUESTED")) builder.addAction(0,"Стоп",control(CANCEL,3))
         val question=task?.questionId.orEmpty()
         val token=if(question.isNotBlank()) question else state.messages.lastOrNull()?.id ?: "empty"
         val reply=PendingIntent.getService(this,4,Intent(this,AgentService::class.java).setAction(REPLY).putExtra("reply_token",token).putExtra("question_id",question),PendingIntent.FLAG_UPDATE_CURRENT or if(Build.VERSION.SDK_INT>=31) PendingIntent.FLAG_MUTABLE else 0)
@@ -67,6 +68,7 @@ class AgentService: Service() {
                 ConversationHub.init(applicationContext)
                 when(intent?.action) {
                     MESSAGE -> intent.getStringExtra("message_id")?.let { ConversationHub.process(it) }
+                    OPEN_CODE_START -> intent.getStringExtra("task_id")?.let { ConversationHub.startOpenCode(it) }
                     REPLY -> {
                         val text=RemoteInput.getResultsFromIntent(intent)?.getCharSequence(REPLY_TEXT)?.toString().orEmpty()
                         if(text.isNotBlank()) {
