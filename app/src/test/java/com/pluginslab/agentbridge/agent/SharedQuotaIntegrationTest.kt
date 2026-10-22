@@ -7,6 +7,23 @@ import kotlinx.serialization.json.*
 import java.util.UUID
 
 class SharedQuotaIntegrationTest {
+    @Test fun dailyMetricWithoutQuotaIdStillPersistsCooldownAndDoesNotRetry() = runBlocking {
+        val group="test:"+UUID.randomUUID()
+        var saved=QuotaLedger();var attempts=0
+        ApiQueue.configure({ QuotaLedger() },{ _,value -> saved=value })
+        val daily=Json.parseToJsonElement("""{"error":{"details":[{"violations":[{"quotaMetric":"generate_content_requests_per_day"}]}]}}""").jsonObject
+        val api=GeminiApi("test",exchange={ _,_ -> attempts++;GeminiApi.Reply(429,daily) },pause={ fail("Daily quota must not retry") })
+        val before=System.currentTimeMillis()
+        withContext(QuotaContext(group,QuotaLimits(),true,{})) {
+            try { api.request("/models/test:generateContent");fail("Expected HTTP failure") }
+            catch(e:ProviderHttpFailure) {
+                assertTrue(e.permanent)
+                assertEquals("WAIT_QUOTA",TaskFailurePolicy.classify(e).taskStatus)
+            }
+        }
+        assertEquals(1,attempts)
+        assertTrue(saved.blockedUntil>=before+QuotaPlanner.DAY)
+    }
     @Test fun longServerDeadlineBlocksGroupEvenWhenThisRequestCannotWait() = runBlocking {
         val group="test:"+UUID.randomUUID()
         var saved=QuotaLedger();var attempts=0

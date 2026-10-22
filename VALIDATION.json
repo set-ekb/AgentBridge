@@ -1,31 +1,41 @@
 {
-  "version": "0.8.0-local",
-  "versionCode": 30,
-  "date": "2026-10-19",
-  "state": "REVIEW",
-  "base": "AgentBridge-0.7.0-source.zip",
-  "requirements": "Drive project card sections 14-19; architecture version 4",
+  "version": "0.8.11-local",
+  "versionCode": 41,
+  "date": "2026-10-22",
+  "status": "REVIEW",
+  "source_base_commit": "211a6e49cb9d0e99c1b9736a204b5be99ab75136",
+  "branch": "fix/stabilize-provider-diagnostics",
+  "scope": "Provider diagnostics and resumable task failure handling; not a new signed release",
+  "environment": {
+    "jdk": "17",
+    "gradle": "8.9",
+    "compile_sdk": 35,
+    "build_tools": "35.0.0"
+  },
+  "command": "./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug",
   "checks": {
     "gradle": "SUCCESS",
-    "unit_tests": 91,
-    "failures": 0,
-    "errors": 0,
+    "unit_tests": {
+      "tests": 135,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "test_suites": 32,
     "lint_errors": 0,
-    "lint_warnings": 70,
-    "apk_signature": "v3 verified",
-    "same_personal_certificate_as_0_5_7": true,
-    "zipalign_16k_4bytes": true,
-    "devices": 0,
-    "device_test": "NOT_RUN",
-    "live_api_test": "NOT_RUN"
+    "lint_warnings": 78,
+    "assemble_debug": "PASS",
+    "git_diff_check": "PASS",
+    "workflow_changes": false,
+    "ci_started": false
   },
-  "certificate_sha256": "7c647f03e0bf659557deb182c609ebf6419466b98daa607c793be3a0e068e775",
-  "apk_sha256": "024d7ded6bf97e1884119779bbcbf8ef53738eee0939d8f3a5dc6b462498fbd3",
-  "limitations": [
-    "No device/Keystore/SQLite migration/UI/voice test in this environment",
-    "No real provider keys; API regression tests use deterministic fake exchanges",
-    "No full semantic high-risk validator, sync or continuous listening",
-    "Conservative estimated input TPM; rolling 24h RPD; no cross-device quota coordination"
+  "installable_update_distributed": false,
+  "signing": "Local debug build only; owner release key not used",
+  "not_verified": [
+    "No ADB device or usable emulator acceleration available",
+    "No live provider calls; deterministic fake transports used for API regressions",
+    "Real HTTP connection cancellation latency and task resume UI on phone",
+    "Existing open_url failures and rejected UI actions in the old log; original exception reasons not recoverable"
   ],
-  "manual_acceptance": "README_0.8.0_RU.md"
+  "report": "docs/STABILIZATION_0811.md"
 }

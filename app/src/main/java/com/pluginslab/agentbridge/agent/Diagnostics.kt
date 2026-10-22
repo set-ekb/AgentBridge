@@ -22,7 +22,7 @@ object Diagnostics {
     private const val KEEP_BYTES = 384 * 1024
     private val allowed = setOf(
         "app_start", "task_start", "task_finish", "task_error", "phase",
-        "api_request", "api_response", "api_error",
+        "api_request", "api_response", "api_error", "api_cancelled",
         "tool_start", "tool_finish", "tool_error", "tool_result",
         "ui_event", "hook_status", "hook_event", "hook_error", "app_error"
     )
@@ -45,6 +45,12 @@ object Diagnostics {
     internal fun safePackage(value: String) = safe(value, 180, packagePattern)
     internal fun safeActivity(value: String) = safe(value, 220, activityPattern)
 
+    fun recordAttempt(event: ProviderAttemptEvent) = record(
+        event.kind, event.status, durationMs = event.durationMs, source = "provider",
+        detail = event.provider, step = event.step, attemptId = event.taskAttemptId,
+        requestId = event.requestId
+    )
+
     @Synchronized fun record(
         type: String,
         status: String = "",
@@ -55,7 +61,8 @@ object Diagnostics {
         detail: String = "",
         step: Int = -1,
         attemptId: String = "",
-        actionId: String = ""
+        actionId: String = "",
+        requestId: String = ""
     ) {
         if (type !in allowed || source !in sources) return
         val context = app ?: return
@@ -75,6 +82,8 @@ object Diagnostics {
                 ?.let { put("attempt_id", it) }
             actionId.takeIf { it.matches(Regex("[a-zA-Z0-9_-]{1,64}")) }
                 ?.let { put("action_id", it) }
+            requestId.takeIf { it.matches(Regex("[a-zA-Z0-9_-]{1,64}")) }
+                ?.let { put("request_id", it) }
         }.toString() + "\n"
         runCatching {
             val file = File(context.filesDir, FILE_NAME)
@@ -164,6 +173,7 @@ object Diagnostics {
         init(context)
         val header = JSONObject().apply {
             put("format", "agentbridge-diagnostics-v2")
+            put("api_trace", "request_id marks actual transport attempts; legacy events may coexist")
             put("version", context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown")
             put("sdk", Build.VERSION.SDK_INT)
             put("exported_at", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date()))

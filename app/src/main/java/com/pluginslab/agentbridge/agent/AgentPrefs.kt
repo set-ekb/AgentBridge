@@ -86,9 +86,10 @@ class AgentPrefs(context: Context) {
         require(value.rpm in 0..100000 && value.tpm in 0..100000000 && value.rpd in 0..1000000 && value.dialogueReserve in 0..100)
         val q=quotaId(id,model);prefs.edit().putInt("rpm_$q",value.rpm).putInt("tpm_$q",value.tpm).putInt("rpd_$q",value.rpd).putInt("reserve_$q",value.dialogueReserve).apply()
     }
-    fun quotaContext(dialogue: Boolean,status: (String)->Unit): QuotaContext {
+    fun quotaContext(dialogue: Boolean,status: (String)->Unit): kotlin.coroutines.CoroutineContext {
         val id=provider;val m=modelFor(id)
-        return QuotaContext(quotaGroup(id,m),limitsFor(id,m),dialogue,status)
+        return QuotaContext(quotaGroup(id,m),limitsFor(id,m),dialogue,status) +
+            ProviderAttemptTrace(id, sink = Diagnostics::recordAttempt)
     }
     var conversationEpoch: Int
         get()=prefs.getInt("conversation_epoch",0)
