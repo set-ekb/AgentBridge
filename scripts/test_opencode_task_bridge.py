@@ -33,6 +33,7 @@ class FakeOpenCode:
             return {"id": "ses_test123"}
         if path == "/session/ses_test123/prompt_async":
             self.prompt_count += 1
+            self.last_prompt = payload
             return None
         if path == "/session/status":
             return {"ses_test123": {"type": "busy"}} if self.incomplete else {}
@@ -63,6 +64,12 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(self.api.prompt_count, 1)
         self.api.incomplete = False
         self.assertEqual(reloaded.status(TASK), {"state": "done", "answer": "Итог готов"})
+
+    def test_live_smoke_disables_every_tool(self):
+        result = self.tasks.create(TASK, "Ответь текстом", disable_tools=True)
+        self.assertEqual(result["state"], "running")
+        self.assertEqual(self.api.last_prompt["tools"], {"*": False})
+        self.assertEqual(self.api.prompt_count, 1)
 
     def test_abort_needs_acknowledgement(self):
         self.tasks.create(TASK, "Проверь файл")
