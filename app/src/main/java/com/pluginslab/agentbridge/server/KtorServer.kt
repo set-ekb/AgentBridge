@@ -21,7 +21,7 @@ object KtorServer {
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
-    fun start(port: Int, token: String) {
+    fun start(port: Int, token: String, openCodeToken: () -> String) {
         server = embeddedServer(CIO, port = port, host = "0.0.0.0") {
             install(ContentNegotiation) {
                 json(Json { prettyPrint = true })
@@ -31,6 +31,7 @@ object KtorServer {
 
             install(BearerAuthPlugin) {
                 this.token = token
+                this.openCodeToken = openCodeToken
             }
 
             routing {
@@ -42,6 +43,16 @@ object KtorServer {
                     mcp {
                         val mcpServer = createMcpServer()
                         ToolRegistry.registerAll(mcpServer)
+                        mcpServer
+                    }
+                }
+
+                // Separate scoped MCP endpoint. The OpenCode pairing token NEVER
+                // authenticates to /mcp, which retains its original owner credential.
+                route("/mcp/opencode") {
+                    mcp {
+                        val mcpServer = createMcpServer()
+                        ToolRegistry.registerOpenCodeReadOnly(mcpServer)
                         mcpServer
                     }
                 }
