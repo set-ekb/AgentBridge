@@ -1,28 +1,22 @@
 package com.pluginslab.agentbridge.server
 
-import io.ktor.http.*
-import io.ktor.server.application.*
-import io.ktor.server.response.*
+import java.security.MessageDigest
 
-class BearerAuthPluginConfig {
-    var token: String = ""
-}
+/**
+ * Credentials for OpenCode's scoped Android MCP MUST NOT authenticate to /mcp.
+ * Route-level Ktor Authentication enforces this; this helper checks token equality.
+ */
+internal object McpAuthRules {
+    fun isOpenCodePath(path: String): Boolean =
+        path == "/mcp/opencode" || path.startsWith("/mcp/opencode/")
 
-val BearerAuthPlugin = createApplicationPlugin(
-    name = "BearerAuth",
-    createConfiguration = ::BearerAuthPluginConfig
-) {
-    val token = pluginConfig.token
-
-    onCall { call ->
-        val path = call.request.local.uri
-        // Skip auth for health check
-        if (path == "/health") return@onCall
-
-        val authHeader = call.request.headers["Authorization"]
-        if (authHeader == null || authHeader != "Bearer $token") {
-            call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid or missing bearer token"))
-            return@onCall
-        }
+    fun allowed(path: String, authorization: String?, primary: String, scoped: String): Boolean {
+        // All callers choose a fixed scope; reject ambiguous paths in direct tests and usage.
+        if (!path.matches(Regex("/[A-Za-z0-9_/-]*")) || path.contains("//")) return false
+        val key = if (isOpenCodePath(path)) scoped else primary
+        if (key.isBlank() || authorization == null) return false
+        val actual = authorization.toByteArray(Charsets.UTF_8)
+        val expected = ("Bearer " + key).toByteArray(Charsets.UTF_8)
+        return MessageDigest.isEqual(actual, expected)
     }
 }

@@ -4,6 +4,7 @@ import com.pluginslab.agentbridge.server.tools.ToolRegistry
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
 import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.plugins.contentnegotiation.*
@@ -21,7 +22,7 @@ object KtorServer {
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
-    fun start(port: Int, token: String) {
+    fun start(port: Int, token: String, openCodeToken: () -> String) {
         server = embeddedServer(CIO, port = port, host = "0.0.0.0") {
             install(ContentNegotiation) {
                 json(Json { prettyPrint = true })
@@ -29,8 +30,24 @@ object KtorServer {
 
             install(SSE)
 
-            install(BearerAuthPlugin) {
-                this.token = token
+            // Authentication is attached to the MCP routes, not just an onCall
+            // callback. Ktor rejects unauthorized requests before tools can execute.
+            install(Authentication) {
+                bearer("bridge-owner") {
+                    realm = "AgentBridge owner MCP"
+                    authenticate { credentials ->
+                        if (McpAuthRules.allowed("/mcp", "Bearer " + credentials.token, token, ""))
+                            UserIdPrincipal("owner") else null
+                    }
+                }
+                bearer("bridge-opencode-read") {
+                    realm = "AgentBridge paired OpenCode read-only MCP"
+                    authenticate { credentials ->
+                        val paired = runCatching { openCodeToken() }.getOrDefault("")
+                        if (McpAuthRules.allowed("/mcp/opencode", "Bearer " + credentials.token, token, paired))
+                            UserIdPrincipal("opencode-readonly") else null
+                    }
+                }
             }
 
             routing {
@@ -38,11 +55,25 @@ object KtorServer {
                     call.respond(mapOf("ok" to true))
                 }
 
-                route("/mcp") {
-                    mcp {
-                        val mcpServer = createMcpServer()
-                        ToolRegistry.registerAll(mcpServer)
-                        mcpServer
+                authenticate("bridge-owner") {
+                    route("/mcp") {
+                        mcp {
+                            val mcpServer = createMcpServer()
+                            ToolRegistry.registerAll(mcpServer)
+                            mcpServer
+                        }
+                    }
+                }
+
+                // Separate scoped MCP endpoint. The OpenCode pairing token NEVER
+                // authenticates to /mcp, which retains its original owner credential.
+                authenticate("bridge-opencode-read") {
+                    route("/mcp/opencode") {
+                        mcp {
+                            val mcpServer = createMcpServer()
+                            ToolRegistry.registerOpenCodeReadOnly(mcpServer)
+                            mcpServer
+                        }
                     }
                 }
             }

@@ -274,7 +274,10 @@ open class PanelActivity: AppCompatActivity() {
         top.addView(basicText("◆",17f,mint),LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(8) })
         top.addView(basicText("AGENTBRIDGE",16f,white).apply { setTypeface(null,Typeface.BOLD) },
             LinearLayout.LayoutParams(0,-2,1f))
-        top.addView(basicText("v0.8.9",11f,mint).apply {
+        val displayedVersion = runCatching {
+            packageManager.getPackageInfo(packageName,0).versionName.orEmpty()
+        }.getOrDefault("")
+        top.addView(basicText("v${displayedVersion.removeSuffix("-local").ifBlank { "?" }}",11f,mint).apply {
             setPadding(dp(8),dp(3),dp(8),dp(3))
             background=panelBg(surfaceAlt,border,8)
         })
@@ -549,6 +552,33 @@ open class PanelActivity: AppCompatActivity() {
         mic=Button(this).apply { text="MIC";contentDescription="Сказать реплику";isAllCaps=false;setTextColor(mint);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25));setOnClickListener { listen() } }
         start=Button(this).apply { text="Отправить ↵";isAllCaps=false;setTextColor(navy);backgroundTintList=android.content.res.ColorStateList.valueOf(mint);setOnClickListener { startTask() } }
         row.addView(mic,LinearLayout.LayoutParams(0,dp(50),1f));row.addView(start,LinearLayout.LayoutParams(0,dp(50),2f))
+        val toOpenCode = Button(this).apply {
+            text="Выполнить через OpenCode · Termux"
+            isAllCaps=false
+            setTextColor(mint)
+            backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25))
+            setOnClickListener {
+                val requested=taskInput.text.toString().trim()
+                if(requested.isBlank()) { feedback("Сначала напиши поручение OpenCode");return@setOnClickListener }
+                if(sending || AgentRuntime.state.value.running || ConversationHub.state.value.routing) {
+                    feedback("Сначала дождись завершения текущей задачи");return@setOnClickListener
+                }
+                sending=true
+                scope.launch {
+                    try {
+                        val id=withContext(Dispatchers.IO) {
+                            ConversationHub.queueOpenCode(applicationContext,requested)
+                        }
+                        if(taskInput.text.toString().trim()==requested) taskInput.text.clear()
+                        AgentService.command(this@PanelActivity,AgentService.OPEN_CODE_START,id)
+                    } catch(e:Exception) {
+                        feedback(e.message?.take(180) ?: "Не удалось отправить OpenCode")
+                    } finally { sending=false;render(AgentRuntime.state.value) }
+                }
+            }
+        }
+        composer.addView(toOpenCode,LinearLayout.LayoutParams(-1,dp(49)))
+        editable.add(toOpenCode)
     }
     private fun renderConversation(view: ConversationHub.View) {
         if(!::conversationList.isInitialized) return
@@ -712,11 +742,13 @@ open class PanelActivity: AppCompatActivity() {
             val excerpt=s.log.takeLast(16000)
             if(journal.text.toString()!=excerpt) journal.text=excerpt
         }
-        val busy=s.running || operation?.isActive==true || view.routing
+        val openCodeActive=view.task?.provider=="opencode" &&
+            view.task.status in setOf("QUEUED","DISPATCHING","RUNNING","STOP_REQUESTED")
+        val busy=s.running || operation?.isActive==true || view.routing || openCodeActive
         editable.forEach { it.isEnabled=!busy || it===taskInput || it===memorySearch }
         taskInput.isEnabled=true;mic.isEnabled=true;start.isEnabled=!sending
         stop.visibility=if(busy || view.task?.status=="WAIT_USER") View.VISIBLE else View.GONE
-        pauseButton.visibility=if(view.task!=null && !IntentRules.isTerminal(view.task.status)) View.VISIBLE else View.GONE
+        pauseButton.visibility=if(view.task!=null && view.task.provider!="opencode" && !IntentRules.isTerminal(view.task.status)) View.VISIBLE else View.GONE
         pauseButton.text=if(s.running) "Пауза" else if(view.task?.status=="WAIT_USER") "Ответить" else "Продолжить"
         modelLabel.text="${labels[ids.indexOf(prefs.provider)]} / ${prefs.modelFor(prefs.provider)} · ${if(BridgeAccessibilityService.instance!=null) "Bridge ●" else "Bridge ○"}"
         if(wasRunning && !s.running) refreshTasks()
@@ -727,7 +759,14 @@ open class PanelActivity: AppCompatActivity() {
         checkpoints.removeAllViews()
         tasks.take(8).forEach { t ->
             val row=TextView(this@PanelActivity).apply { text="${t.status} · ${t.provider}/${t.model}\n${t.goal.take(160)}\n${t.observation.take(180)}";setTextColor(white);setPadding(0,dp(12),0,dp(4)) };checkpoints.addView(row)
-            if(t.status !in setOf("COMPLETE","CANCELLED")) {
+            if(t.provider=="opencode" && t.status !in setOf("COMPLETE","CANCELLED")) {
+                row.append("\nOpenCode: " + when(t.status) {
+                    "UNKNOWN","STOP_UNCONFIRMED","STOP_REQUESTED" ->
+                        "Состояние не подтверждено; проверь сессию в Termux. Не отправляй повторно."
+                    "QUEUED" -> "Задача ожидает отправки; не создавай повторную."
+                    else -> "Сессия может выполняться в Termux. Стоп доступен в панели и уведомлении."
+                })
+            } else if(t.status !in setOf("COMPLETE","CANCELLED")) {
                 val resume=Button(this@PanelActivity).apply { text="Продолжить с текущей моделью";isAllCaps=false;setOnClickListener { startTask(t) } };checkpoints.addView(resume)
                 val cancel=Button(this@PanelActivity).apply { text="Отменить сохранённую задачу";isAllCaps=false;setOnClickListener { action {
                     check(!AgentRuntime.state.value.running) { "Сначала остановите задачу" }

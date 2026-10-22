@@ -51,7 +51,11 @@ class McpForegroundService : Service() {
         val port = settings.serverPort
         val token = settings.token
         try {
-            KtorServer.start(port, token)
+            KtorServer.start(port, token) {
+                runCatching {
+                    com.pluginslab.agentbridge.agent.AgentPrefs(this).keyFor("opencode_link")
+                }.getOrDefault("")
+            }
             isRunning = true
             Log.i(TAG, "MCP server started on port $port")
         } catch (e: Exception) {
