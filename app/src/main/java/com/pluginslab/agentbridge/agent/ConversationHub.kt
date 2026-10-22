@@ -108,13 +108,15 @@ object ConversationHub {
                         OwnerIntent.CANCEL -> {
                             AgentRuntime.cancel()
                             if(!active && task!=null && !IntentRules.isTerminal(task.status)) { val updated=task.copy(status="CANCELLED",questionId="",questionText="",updated=System.currentTimeMillis());db().checkpoint(updated);refresh("Задача отменена",updated) }
-                            reply("Остановлено. Новых действий не будет; уже выполненные не отменяются.",message,"control")
+                            reply(if(task?.provider=="opencode") "Запрос остановки OpenCode принят. До подтверждения сервера выполнение может продолжаться; проверь статус задачи." else "Остановлено. Новых действий не будет; уже выполненные не отменяются.",message,"control")
                         }
                         OwnerIntent.PAUSE -> {
                             AgentRuntime.pause();reply(if(task==null || IntentRules.isTerminal(task.status)) "Сейчас нет активной задачи." else "Пауза. Для продолжения скажи «продолжай».",message,"control")
                         }
                         OwnerIntent.RESUME -> if(active) reply("Задача уже выполняется.",message)
                         else if(task?.status=="WAIT_USER") reply("Сначала ответь на ожидающий вопрос: "+task.questionText,message)
+                        else if(task?.provider=="opencode" && task.status in setOf("UNKNOWN","STOP_UNCONFIRMED","STOP_REQUESTED"))
+                            reply("OpenCode: результат или остановка не подтверждены. Проверь сессию в Termux; повторный запуск мог бы повторить действия.",message)
                         else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED")) runTask(task,message.generation) else {
                             val pending=db().messages().lastOrNull { it.role=="user" && it.status=="INTERRUPTED" }
                             if(pending!=null) {
@@ -231,7 +233,8 @@ object ConversationHub {
     private fun reply(text: String,to: ConversationMessage,suffix: String="reply") { say(text,"$suffix:${to.id}",to.taskId) }
     fun say(text: String,id: String,taskId: String="",speak: Boolean=true) {
         val p=AgentPrefs(app());val key=runCatching { p.keyFor(p.provider) }.getOrDefault("")
-        val safe=AgentPolicy.safeLog(text,key,limit=16000)
+        val linkKey=runCatching { p.keyFor("opencode_link") }.getOrDefault("")
+        val safe=AgentPolicy.safeLog(AgentPolicy.safeLog(text,key,limit=16000),linkKey,limit=16000)
         if(db().addMessage(ConversationMessage(id=id,role="assistant",text=safe,taskId=taskId,status="COMPLETE"))) {
             val task=currentTask()
             val phase=if(AgentRuntime.state.value.running) AgentRuntime.state.value.phase else when(task?.status) {
@@ -316,9 +319,10 @@ object ConversationHub {
                         when(update.state) {
                             "done" -> {
                                 val answer=update.answer.ifBlank { "OpenCode завершил сессию без текстового отчёта." }
+                                // Fixed message ID makes recovery idempotent.
+                                say(answer.take(12000),"task:$id:opencode",id)
                                 updateOpenCode(task.copy(status="COMPLETE",answer=answer.take(12000)),
                                     "OpenCode · задача завершена")
-                                say(answer.take(12000),"task:$id:opencode",id)
                                 completed=true
                                 return@launch
                             }
