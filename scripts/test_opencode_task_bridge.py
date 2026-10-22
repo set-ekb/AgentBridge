@@ -23,6 +23,7 @@ TASK = "12345678-1234-1234-1234-123456789abc"
 class FakeOpenCode:
     def __init__(self):
         self.prompt_count = 0
+        self.last_prompt = None
         self.abort_count = 0
         self.incomplete = True
         self.fail_abort = False
