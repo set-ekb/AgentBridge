@@ -13,6 +13,10 @@ internal object McpAuthRules {
         path == "/mcp/opencode" || path.startsWith("/mcp/opencode/")
 
     fun allowed(path: String, authorization: String?, primary: String, scoped: String): Boolean {
+        // Reject ambiguous path normalization before choosing an identity scope.
+        // This applies to both token classes: no percent-encoding, dot segments
+        // or backslashes may change which route Ktor ultimately resolves.
+        if (!path.matches(Regex("/[A-Za-z0-9_/-]*")) || path.contains("//")) return false
         val key = if (isOpenCodePath(path)) scoped else primary
         if (key.isBlank() || authorization == null) return false
         val actual = authorization.toByteArray(Charsets.UTF_8)
