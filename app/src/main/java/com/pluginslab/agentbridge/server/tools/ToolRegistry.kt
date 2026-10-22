@@ -58,6 +58,19 @@ object ToolRegistry {
         addTool(name = name, description = description, inputSchema = inputSchema) { request -> handler(request) }
     }
 
+    /**
+     * Android inspection tools that OpenCode may use alongside its OWN native
+     * bash/read/edit/web tools. No tapping, typing, clipboard, browser JS,
+     * screenshots, notifications, shell or privileged Android actions here.
+     */
+    fun registerOpenCodeReadOnly(server: Server) {
+        registerGetActiveWindowInfo(server)
+        registerGetUiTree(server)
+        registerFindNodes(server)
+        registerListApps(server)
+        registerDiagnosticAnalysis(server)
+    }
+
     fun registerAll(server: Server) {
         registerGetActiveWindowInfo(server)
         registerDiagnosticAnalysis(server)
