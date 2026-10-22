@@ -274,7 +274,10 @@ open class PanelActivity: AppCompatActivity() {
         top.addView(basicText("◆",17f,mint),LinearLayout.LayoutParams(-2,-2).apply { rightMargin=dp(8) })
         top.addView(basicText("AGENTBRIDGE",16f,white).apply { setTypeface(null,Typeface.BOLD) },
             LinearLayout.LayoutParams(0,-2,1f))
-        top.addView(basicText("v0.8.9",11f,mint).apply {
+        val displayedVersion = runCatching {
+            packageManager.getPackageInfo(packageName,0).versionName.orEmpty()
+        }.getOrDefault("")
+        top.addView(basicText("v${displayedVersion.ifBlank { "?" }}",11f,mint).apply {
             setPadding(dp(8),dp(3),dp(8),dp(3))
             background=panelBg(surfaceAlt,border,8)
         })
