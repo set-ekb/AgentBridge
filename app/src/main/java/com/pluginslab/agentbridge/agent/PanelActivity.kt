@@ -377,6 +377,34 @@ open class PanelActivity: AppCompatActivity() {
             } }.also { editable.add(it) }
             label("Ключи шифруются отдельно. API оплачивается отдельно от подписок. Экран и разрешённая память передаются выбранному провайдеру; автоматического перехода к другому провайдеру нет.",12)
             }
+            section("OpenCode · Termux", "Сопряжение с локальным сервером · только чтение") {
+                label("Нужен небольшой шлюз в Termux на 127.0.0.1:4097. Пароль OpenCode не передаётся в приложение. Здесь хранится отдельный ключ сопряжения.",11)
+                val pairing = input("Новый ключ сопряжения из Termux",password=true)
+                val linkState = label("Связь с OpenCode ещё не проверялась",12)
+                button("Сохранить ключ связи") {
+                    action {
+                        val value = pairing.text.toString().trim()
+                        require(value.matches(Regex("[A-Za-z0-9_-]{20,128}"))) { "Некорректный ключ сопряжения" }
+                        prefs.setKeyFor("opencode_link",value)
+                        pairing.text.clear()
+                        feedback("Ключ связи сохранён в защищённом хранилище Android")
+                    }
+                }
+                button("Проверить связь · без запросов модели") {
+                    action {
+                        linkState.text="Проверяю локальный OpenCode…"
+                        try {
+                            val result=OpenCodeLocalLink.check(prefs.keyFor("opencode_link"))
+                            linkState.text=if(result.healthy)
+                                "OpenCode ${result.version} · активных сессий: ${result.activeSessions} · защищённая связь"
+                            else "Шлюз доступен, но сервер OpenCode не отвечает"
+                        } catch (e: Exception) {
+                            linkState.text=e.message?.take(160) ?: "Локальное соединение не установлено"
+                        }
+                    }
+                }
+                label("Этап 1: проверка статуса. Управление заданиями и Android-инструментами пока не подключено.",11)
+            }
             section("Квоты API", "Лимиты, очередь, резерв запросов") {
             label("Квоты задаются для выбранной модели и группы проекта. Ноль означает неизвестный лимит; серверные ограничения действуют всегда. TPM оценивается консервативно до ответа, RPD — по скользящим 24 часам.",12)
             button("Настроить квоты выбранной модели") { editQuota() }.also { editable.add(it) }
