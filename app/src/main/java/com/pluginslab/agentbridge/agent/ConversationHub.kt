@@ -52,7 +52,7 @@ object ConversationHub {
         synchronized(jobLock) { jobs.values.forEach { it.cancel() } }
         store?.tasks()?.filter { it.status=="QUEUED" }?.forEach { store?.checkpoint(it.copy(status="CANCELLED",updated=System.currentTimeMillis())) }
         currentTask()?.takeIf { !AgentRuntime.state.value.running && !IntentRules.isTerminal(it.status) }?.let {
-            val stopped=it.copy(status=if(it.provider=="opencode" && it.status in setOf("RUNNING","DISPATCHING","QUEUED")) "STOP_REQUESTED" else "CANCELLED",questionId="",questionText="",updated=System.currentTimeMillis())
+            val stopped=it.copy(status=if(it.provider=="opencode" && it.status in setOf("RUNNING","DISPATCHING","QUEUED","STOP_REQUESTED")) "STOP_REQUESTED" else if(it.provider=="opencode" && it.status in setOf("UNKNOWN","STOP_UNCONFIRMED")) it.status else "CANCELLED",questionId="",questionText="",updated=System.currentTimeMillis())
             store?.checkpoint(stopped);refresh("Задача отменена",stopped)
         }
     }
