@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-TASK_ID = re.compile(r"^[a-f0-9]{8}-[a-f0-9-]{28,36}$")
+TASK_ID = re.compile(r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
 SESSION_ID = re.compile(r"^ses_[A-Za-z0-9]+$")
 MAX_OUTPUT = 12288
 
