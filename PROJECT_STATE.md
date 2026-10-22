@@ -1,22 +1,22 @@
-# AgentBridge 0.8.11 — REVIEW
+# AgentBridge 0.8.12 — REVIEW
 
-Current code baseline: `211a6e4`, version `0.8.11-local`, versionCode 41.
-The owner-provided diagnostic export dated 2026-10-22 also reports 0.8.11.
-Presence in a phone log confirms execution of that version, not acceptance of
-all scenarios or confirmation of its signing/migration history.
+Build source: `8a91afd6c4db358dc1828d7759b9015b7da3236f`, version `0.8.12-local`, versionCode 42.
+Manual signed build: https://github.com/set-ekb/AgentBridge/actions/runs/39839017625
 
-Locally verified: first stabilization pass for actual provider-attempt diagnostics,
-resumable API/network failures, and consistent daily-quota cooldown.
-Scope, evidence and acceptance: [docs/STABILIZATION_0811.md](docs/STABILIZATION_0811.md).
-The optional OpenCode integration remains part of the baseline; this pass does
-not change its execution or permissions. No workflow changes or CI runs were performed
-in this pass. Device and real-provider validation remain separate acceptance steps.
+Adds the explicit OpenCode/connector startup button and a fixed Termux launcher.
+Setup and behavior: [docs/OPENCODE_START_RU.md](docs/OPENCODE_START_RU.md).
+Android unit tests, debug/release compilation, pinned certificate and APK signature
+checks passed. All 15 Python OpenCode tests passed (7 new startup regressions).
+Main and GitHub Releases were not changed. Full current lint was not rerun.
 
-Current patch checks: 135 JVM tests passed; Debug APK assembled; lint 0 errors / 78 warnings.
-See VALIDATION.json for scope and unverified scenarios. No signed update is published.
+The owner's latest 0.8.11 phone export confirms request IDs, a timeout resulting
+in PAUSED, and two cancelled requests with no later tool actions in those attempts.
+It also shows eight successful list_apps calls in one task. Repetition and the
+reported active-window symptom remain unresolved, not fixed by this launcher.
+Actual Termux startup, Android permissions, lifecycle and MCP connection must be
+verified on the phone. A healthy gateway is not proof of Android MCP readiness.
 
-The following evidence belongs to the historical 0.8.0 iteration and must not be
-presented as tests or device acceptance of 0.8.11 or this patch.
+Previous stabilization evidence: [docs/STABILIZATION_0811.md](docs/STABILIZATION_0811.md).
 
 ## Historical checkpoint: 0.8.0
 

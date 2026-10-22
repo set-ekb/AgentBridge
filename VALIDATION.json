@@ -1,41 +1,41 @@
 {
-  "version": "0.8.11-local",
-  "versionCode": 41,
-  "date": "2026-10-22",
+  "version": "0.8.12-local",
+  "versionCode": 42,
+  "date": "2026-10-23",
   "status": "REVIEW",
-  "source_base_commit": "211a6e49cb9d0e99c1b9736a204b5be99ab75136",
   "branch": "fix/stabilize-provider-diagnostics",
-  "scope": "Provider diagnostics and resumable task failure handling; not a new signed release",
-  "environment": {
-    "jdk": "17",
-    "gradle": "8.9",
-    "compile_sdk": 35,
-    "build_tools": "35.0.0"
-  },
-  "command": "./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug",
+  "build_source_commit": "8a91afd6c4db358dc1828d7759b9015b7da3236f",
+  "scope": "User-invoked OpenCode and connector startup; includes previous provider stabilization",
+  "workflow_run": 39839017625,
+  "artifact_id": 12452991052,
+  "artifact_zip_sha256": "sha256:cd540c7a1604b3aab44020303fd6edd753615e9dfa9d73e213749e07b089f557",
   "checks": {
-    "gradle": "SUCCESS",
-    "unit_tests": {
-      "tests": 135,
-      "failures": 0,
-      "errors": 0,
-      "skipped": 0
-    },
-    "test_suites": 32,
-    "lint_errors": 0,
-    "lint_warnings": 78,
+    "android_unit_tests": "PASS",
     "assemble_debug": "PASS",
+    "assemble_release": "PASS",
+    "pinned_signing_certificate": "PASS",
+    "apk_signatures": "PASS",
+    "python_opencode_tests": {
+      "tests": 15,
+      "failures": 0
+    },
     "git_diff_check": "PASS",
-    "workflow_changes": false,
-    "ci_started": false
+    "release_publication": "SKIPPED"
   },
-  "installable_update_distributed": false,
-  "signing": "Local debug build only; owner release key not used",
+  "historical_lint": {
+    "version": "0.8.11 stabilization",
+    "errors": 0,
+    "warnings": 78,
+    "current_full_lint_rerun": false
+  },
   "not_verified": [
-    "No ADB device or usable emulator acceleration available",
-    "No live provider calls; deterministic fake transports used for API regressions",
-    "Real HTTP connection cancellation latency and task resume UI on phone",
-    "Existing open_url failures and rejected UI actions in the old log; original exception reasons not recoverable"
+    "Termux RUN_COMMAND permission and readiness UI on the owner's phone",
+    "Actual OpenCode startup, persistence under Android background restrictions, and Android MCP connectivity",
+    "Active-window/list_apps repetition from latest phone log remains unresolved; not fixed in 0.8.12",
+    "Actual installed APK certificate compatibility and device acceptance"
   ],
-  "report": "docs/STABILIZATION_0811.md"
+  "reports": [
+    "docs/OPENCODE_START_RU.md",
+    "docs/STABILIZATION_0811.md"
+  ]
 }
