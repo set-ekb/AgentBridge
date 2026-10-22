@@ -742,7 +742,9 @@ open class PanelActivity: AppCompatActivity() {
             val excerpt=s.log.takeLast(16000)
             if(journal.text.toString()!=excerpt) journal.text=excerpt
         }
-        val busy=s.running || operation?.isActive==true || view.routing
+        val openCodeActive=view.task?.provider=="opencode" &&
+            view.task.status in setOf("QUEUED","DISPATCHING","RUNNING","STOP_REQUESTED")
+        val busy=s.running || operation?.isActive==true || view.routing || openCodeActive
         editable.forEach { it.isEnabled=!busy || it===taskInput || it===memorySearch }
         taskInput.isEnabled=true;mic.isEnabled=true;start.isEnabled=!sending
         stop.visibility=if(busy || view.task?.status=="WAIT_USER") View.VISIBLE else View.GONE
@@ -757,7 +759,14 @@ open class PanelActivity: AppCompatActivity() {
         checkpoints.removeAllViews()
         tasks.take(8).forEach { t ->
             val row=TextView(this@PanelActivity).apply { text="${t.status} · ${t.provider}/${t.model}\n${t.goal.take(160)}\n${t.observation.take(180)}";setTextColor(white);setPadding(0,dp(12),0,dp(4)) };checkpoints.addView(row)
-            if(t.status !in setOf("COMPLETE","CANCELLED")) {
+            if(t.provider=="opencode" && t.status !in setOf("COMPLETE","CANCELLED")) {
+                row.append("\nOpenCode: " + when(t.status) {
+                    "UNKNOWN","STOP_UNCONFIRMED","STOP_REQUESTED" ->
+                        "Состояние не подтверждено; проверь сессию в Termux. Не отправляй повторно."
+                    "QUEUED" -> "Задача ожидает отправки; не создавай повторную."
+                    else -> "Сессия может выполняться в Termux. Стоп доступен в панели и уведомлении."
+                })
+            } else if(t.status !in setOf("COMPLETE","CANCELLED")) {
                 val resume=Button(this@PanelActivity).apply { text="Продолжить с текущей моделью";isAllCaps=false;setOnClickListener { startTask(t) } };checkpoints.addView(resume)
                 val cancel=Button(this@PanelActivity).apply { text="Отменить сохранённую задачу";isAllCaps=false;setOnClickListener { action {
                     check(!AgentRuntime.state.value.running) { "Сначала остановите задачу" }
