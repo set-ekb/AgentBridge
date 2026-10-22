@@ -21,8 +21,8 @@ android {
         applicationId = "com.pluginslab.agentbridge"
         minSdk = 29
         targetSdk = 34
-        versionCode = 39
-        versionName = "0.8.9-local"
+        versionCode = 40
+        versionName = "0.8.10-local"
     }
 
     signingConfigs {
