@@ -552,6 +552,33 @@ open class PanelActivity: AppCompatActivity() {
         mic=Button(this).apply { text="MIC";contentDescription="Сказать реплику";isAllCaps=false;setTextColor(mint);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25));setOnClickListener { listen() } }
         start=Button(this).apply { text="Отправить ↵";isAllCaps=false;setTextColor(navy);backgroundTintList=android.content.res.ColorStateList.valueOf(mint);setOnClickListener { startTask() } }
         row.addView(mic,LinearLayout.LayoutParams(0,dp(50),1f));row.addView(start,LinearLayout.LayoutParams(0,dp(50),2f))
+        val toOpenCode = Button(this).apply {
+            text="Выполнить через OpenCode · Termux"
+            isAllCaps=false
+            setTextColor(mint)
+            backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(20,35,25))
+            setOnClickListener {
+                val requested=taskInput.text.toString().trim()
+                if(requested.isBlank()) { feedback("Сначала напиши поручение OpenCode");return@setOnClickListener }
+                if(sending || AgentRuntime.state.value.running || ConversationHub.state.value.routing) {
+                    feedback("Сначала дождись завершения текущей задачи");return@setOnClickListener
+                }
+                sending=true
+                scope.launch {
+                    try {
+                        val id=withContext(Dispatchers.IO) {
+                            ConversationHub.queueOpenCode(applicationContext,requested)
+                        }
+                        if(taskInput.text.toString().trim()==requested) taskInput.text.clear()
+                        AgentService.command(this@PanelActivity,AgentService.OPEN_CODE_START,id)
+                    } catch(e:Exception) {
+                        feedback(e.message?.take(180) ?: "Не удалось отправить OpenCode")
+                    } finally { sending=false;render(AgentRuntime.state.value) }
+                }
+            }
+        }
+        composer.addView(toOpenCode,LinearLayout.LayoutParams(-1,dp(49)))
+        editable.add(toOpenCode)
     }
     private fun renderConversation(view: ConversationHub.View) {
         if(!::conversationList.isInitialized) return
@@ -719,7 +746,7 @@ open class PanelActivity: AppCompatActivity() {
         editable.forEach { it.isEnabled=!busy || it===taskInput || it===memorySearch }
         taskInput.isEnabled=true;mic.isEnabled=true;start.isEnabled=!sending
         stop.visibility=if(busy || view.task?.status=="WAIT_USER") View.VISIBLE else View.GONE
-        pauseButton.visibility=if(view.task!=null && !IntentRules.isTerminal(view.task.status)) View.VISIBLE else View.GONE
+        pauseButton.visibility=if(view.task!=null && view.task.provider!="opencode" && !IntentRules.isTerminal(view.task.status)) View.VISIBLE else View.GONE
         pauseButton.text=if(s.running) "Пауза" else if(view.task?.status=="WAIT_USER") "Ответить" else "Продолжить"
         modelLabel.text="${labels[ids.indexOf(prefs.provider)]} / ${prefs.modelFor(prefs.provider)} · ${if(BridgeAccessibilityService.instance!=null) "Bridge ●" else "Bridge ○"}"
         if(wasRunning && !s.running) refreshTasks()
