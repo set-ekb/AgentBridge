@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "agentbridge_android": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/mcp/opencode",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:AGENTBRIDGE_MCP_TOKEN}"
+      }
+    }
+  },
+  "permission": {
+    "bash": "ask",
+    "edit": "ask",
+    "external_directory": "ask",
+    "agentbridge_android_*": "allow"
+  }
+}
