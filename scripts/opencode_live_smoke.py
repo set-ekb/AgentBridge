@@ -44,7 +44,7 @@ def main():
         task_id = str(uuid.uuid4())
         print("Smoke task ID:", task_id)
         print("Submitting one safe text-only prompt. No automatic retry.")
-        update = manager.create(task_id, SMOKE_PROMPT)
+        update = manager.create(task_id, SMOKE_PROMPT, disable_tools=True)
         print("Initial state:", update["state"])
         if update["state"] != "running":
             print("Stop: dispatch is not confirmed; inspect session manually.")
