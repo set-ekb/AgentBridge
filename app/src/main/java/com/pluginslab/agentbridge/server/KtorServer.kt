@@ -41,11 +41,11 @@ object KtorServer {
                     }
                 }
                 bearer("bridge-opencode-read") {
-                    realm = "AgentBridge paired OpenCode read-only MCP"
+                    realm = "AgentBridge paired OpenCode scoped Android MCP"
                     authenticate { credentials ->
                         val paired = runCatching { openCodeToken() }.getOrDefault("")
                         if (McpAuthRules.allowed("/mcp/opencode", "Bearer " + credentials.token, token, paired))
-                            UserIdPrincipal("opencode-readonly") else null
+                            UserIdPrincipal("opencode-scoped") else null
                     }
                 }
             }
@@ -71,7 +71,7 @@ object KtorServer {
                     route("/mcp/opencode") {
                         mcp {
                             val mcpServer = createMcpServer()
-                            ToolRegistry.registerOpenCodeReadOnly(mcpServer)
+                            ToolRegistry.registerOpenCodeTools(mcpServer)
                             mcpServer
                         }
                     }
