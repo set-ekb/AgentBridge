@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Granted explicitly by the owner for the fixed OpenCode startup button. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <!-- User-controlled accessibility automation needs to discover arbitrary launcher apps.
          This personal build is sideloaded; no Google Play distribution is claimed. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"

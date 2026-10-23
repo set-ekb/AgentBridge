@@ -20,6 +20,13 @@ object GeminiRetryPolicy {
         id.contains("PerMinute",true) || metric.contains("per_minute",true)
     }
 
+    fun permanentQuota(body: JsonObject): Boolean = violations(body).any {
+        val id = (it["quotaId"] as? JsonPrimitive)?.content.orEmpty()
+        val metric = (it["quotaMetric"] as? JsonPrimitive)?.content.orEmpty()
+        id.contains("PerDay",true) || metric.contains("per_day",true) ||
+            (it["quotaValue"] as? JsonPrimitive)?.doubleOrNull == 0.0
+    }
+
     private fun secondsMs(value: String?): Long? {
         val seconds = value?.toDoubleOrNull() ?: return null
         if (!seconds.isFinite() || seconds < 0 || seconds > 86400) return null
@@ -40,12 +47,7 @@ object GeminiRetryPolicy {
     fun delayMs(code: Int, body: JsonObject, retryAfter: String?, retryIndex: Int,
                 waitedMs: Long, nowMs: Long): Long? {
         if (retryIndex < 0) return null
-        if (code == 429 && violations(body).any {
-                val id=(it["quotaId"] as? JsonPrimitive)?.content.orEmpty()
-                val metric=(it["quotaMetric"] as? JsonPrimitive)?.content.orEmpty()
-                id.contains("PerDay",true) || metric.contains("per_day",true) ||
-                    (it["quotaValue"] as? JsonPrimitive)?.doubleOrNull == 0.0
-            }) return null
+        if (code == 429 && permanentQuota(body)) return null
         val fallback = when {
             code == 429 && retryIndex < 4 -> 65_000L * (1L shl retryIndex.coerceAtMost(2))
             code == 503 && retryIndex < 3 -> 3_000L * (1L shl retryIndex)

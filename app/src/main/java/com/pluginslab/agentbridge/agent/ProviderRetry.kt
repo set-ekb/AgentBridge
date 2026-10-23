@@ -3,7 +3,7 @@ package com.pluginslab.agentbridge.agent
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 
-class ProviderHttpFailure(val code: Int,val retryAfter: String?,val permanent: Boolean=false,message: String): Exception(message)
+class ProviderHttpFailure(val code: Int,val retryAfter: String?,val permanent: Boolean=false,message: String): IllegalStateException(message)
 
 /** Retry only the same model request, never replay a phone command. */
 class ProviderRetry(
@@ -15,7 +15,9 @@ class ProviderRetry(
         var attempt=0;var waited=0L
         while(true) {
             currentCoroutineContext().ensureActive()
-            try { return ApiQueue.transmit(data) { exchange(url,headers,data) }.also { currentCoroutineContext().ensureActive() } }
+            try { return ApiQueue.transmit(data) {
+                ProviderAttemptTrace.exchange { exchange(url,headers,data) }
+            }.also { currentCoroutineContext().ensureActive() } }
             catch(e:ProviderHttpFailure) {
                 val serverWait=GeminiRetryPolicy.serverDelayMs(buildJsonObject {},e.retryAfter,System.currentTimeMillis())
                 if(e.code in setOf(429,500,502,503,504) && serverWait!=null) ApiQueue.block(serverWait+1000,"HTTP ${e.code} · срок сервера")

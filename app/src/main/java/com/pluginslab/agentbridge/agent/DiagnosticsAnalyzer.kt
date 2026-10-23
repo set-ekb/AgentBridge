@@ -12,7 +12,7 @@ object DiagnosticsAnalyzer {
     private val json = Json { ignoreUnknownKeys = true }
     private val validEvents = setOf(
         "app_start", "task_start", "task_finish", "task_error", "phase",
-        "api_request", "api_response", "api_error", "tool_start", "tool_finish",
+        "api_request", "api_response", "api_error", "api_cancelled", "tool_start", "tool_finish",
         "tool_error", "tool_result", "ui_event", "hook_status", "hook_event",
         "hook_error", "app_error"
     )
@@ -28,7 +28,8 @@ object DiagnosticsAnalyzer {
         val status: String,
         val detail: String,
         val durationMs: Long?,
-        val step: Int?
+        val step: Int?,
+        val requestId: String = ""
     )
 
     data class Window(
@@ -81,7 +82,10 @@ object DiagnosticsAnalyzer {
                     status = safe(obj.string("status")),
                     detail = safe(obj.string("detail")),
                     durationMs = duration,
-                    step = obj.int("step")?.takeIf { it in 0..10000 }
+                    step = obj.int("step")?.takeIf { it in 0..10000 },
+                    requestId = obj.string("request_id").takeIf {
+                        it.matches(Regex("[A-Za-z0-9_-]{1,64}"))
+                    }.orEmpty()
                 )
             } catch (_: Exception) {
                 malformed++
@@ -116,7 +120,7 @@ object DiagnosticsAnalyzer {
         put("task_outcomes_observed", counts(finished.map { it.status.ifBlank { "unknown" } }))
         put("task_starts_observed", w.events.count { it.kind == "task_start" })
         put("errors_observed", w.events.count(::isError))
-        put("note", "Observed metadata only; missing or rotated entries are not proof of success")
+        put("note", "Observed events only; legacy api_error may include countdown updates. Error events are not unique failures. Missing or rotated entries are not proof of success.")
     }
 
     fun recentErrors(w: Window, limit: Int = 20): JsonObject = buildJsonObject {
@@ -135,7 +139,7 @@ object DiagnosticsAnalyzer {
                     })
                 }
         })
-        put("note", "Categories only; exception texts, request bodies and tokens are unavailable")
+        put("note", "Category event counts only; legacy API countdown updates can repeat one failure. Exception texts, request bodies and tokens are unavailable.")
     }
 
     fun apiFailures(w: Window): JsonObject = buildJsonObject {
@@ -146,12 +150,16 @@ object DiagnosticsAnalyzer {
         put("api_requests_observed", api.count { it.kind == "api_request" })
         put("api_responses_observed", api.count { it.kind == "api_response" })
         put("api_errors_observed", failed.size)
+        put("http_attempts_observed", api.count { it.kind == "api_request" && it.requestId.isNotBlank() })
+        put("http_failures_observed", failed.count { it.requestId.isNotBlank() })
+        put("legacy_api_error_events", failed.count { it.requestId.isBlank() })
+        put("api_cancellations_observed", api.count { it.kind == "api_cancelled" })
         put("error_categories", counts(failed.map { it.status.ifBlank { "unknown" } }))
         put("errors_by_provider", counts(failed.map {
             it.detail.takeIf { provider -> provider in providers } ?: "unattributed"
         }))
         put("latency_ms", latency(durations))
-        put("note", "HTTP reason/provider can be unknown; no live network request is performed")
+        put("note", "Only request_id-tagged events count actual HTTP attempts. Legacy api_error events may include repeated countdown updates; their count is not a failed-request count. Latency may mix legacy logical calls and actual attempts. No live network request is performed.")
     }
 
     private fun percentile(values: List<Long>, fraction: Double): Long? =

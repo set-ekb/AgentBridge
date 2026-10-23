@@ -7,7 +7,8 @@ on:
   pull_request:
     branches: [main]
 
-# Only a trusted main-branch run may read private signing secrets or publish assets.
+# Signing is allowed on main and explicitly dispatched stabilization builds.
+# Only main may publish release assets.
 permissions:
   contents: read
 
@@ -57,7 +58,7 @@ jobs:
 
       - name: Prepare permanent signing key
         id: signing
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/stabilize-provider-diagnostics')
         env:
           SIGNING_B64: ${{ secrets.AGENTBRIDGE_SIGNING_KEYSTORE_B64 }}
           SIGNING_PASSWORD: ${{ secrets.AGENTBRIDGE_SIGNING_PASSWORD }}
@@ -83,7 +84,7 @@ jobs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Build both permanently signed release APKs
-        if: github.ref == 'refs/heads/main' && steps.signing.outputs.ready == 'true'
+        if: (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/stabilize-provider-diagnostics')) && steps.signing.outputs.ready == 'true'
         env:
           AGENTBRIDGE_SIGNING_STORE_FILE: ${{ runner.temp }}/agentbridge-release.p12
           AGENTBRIDGE_SIGNING_PASSWORD: ${{ secrets.AGENTBRIDGE_SIGNING_PASSWORD }}
@@ -101,7 +102,7 @@ jobs:
           (cd release-apks && sha256sum AgentBridge.apk AgentBridge-Hooks.apk > SHA256SUMS.txt)
 
       - name: Upload signed installable APKs
-        if: github.ref == 'refs/heads/main' && steps.signing.outputs.ready == 'true'
+        if: (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/stabilize-provider-diagnostics')) && steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AgentBridge-signed-APKs

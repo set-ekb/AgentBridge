@@ -93,4 +93,22 @@ class DiagnosticsAnalyzerTest {
             DiagnosticsAnalyzer.health(w,true,false)["overall"]!!.jsonPrimitive.content)
         assertEquals(1, w.badLines)
     }
+
+    @Test fun legacyCountdownsAreNotPresentedAsVerifiedHttpFailures() {
+        val legacy = List(30) { item("api_error", "service_503", source = "provider") }
+        fun traced(event: String, status: String) = buildJsonObject {
+            put("time", now - 1000)
+            put("event", event); put("status", status); put("detail", "gemini")
+            put("request_id", "request-1")
+        }.toString()
+        val w = DiagnosticsAnalyzer.parse(legacy + listOf(
+            traced("api_request", "start"), traced("api_cancelled", "cancelled")
+        ), 24, now)
+        val result = DiagnosticsAnalyzer.apiFailures(w)
+        assertEquals(30, result["legacy_api_error_events"]!!.jsonPrimitive.int)
+        assertEquals(1, result["http_attempts_observed"]!!.jsonPrimitive.int)
+        assertEquals(0, result["http_failures_observed"]!!.jsonPrimitive.int)
+        assertEquals(1, result["api_cancellations_observed"]!!.jsonPrimitive.int)
+        assertEquals(0, w.badLines)
+    }
 }

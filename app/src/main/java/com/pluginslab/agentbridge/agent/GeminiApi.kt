@@ -35,7 +35,9 @@ class GeminiApi(private val key: String, private val status: (String) -> Unit = 
         var waitedMs = 0L
         while (true) {
             currentCoroutineContext().ensureActive()
-            val (code, body, retryAfter) = ApiQueue.transmit(payload) { exchange(path,payload) }
+            val (code, body, retryAfter) = ApiQueue.transmit(payload) {
+                ProviderAttemptTrace.exchange(code = { it.code }) { exchange(path,payload) }
+            }
             currentCoroutineContext().ensureActive()
             if (code in 200..299) return body
             val serverWait=GeminiRetryPolicy.serverDelayMs(body,retryAfter,now())
@@ -52,9 +54,8 @@ class GeminiApi(private val key: String, private val status: (String) -> Unit = 
                 }
                 waitedMs += wait; attempt++
             } else {
-                if(code==429 && GeminiRetryPolicy.violations(body).any {
-                    it["quotaId"]?.jsonPrimitive?.contentOrNull?.contains("PerDay",true)==true || it["quotaValue"]?.jsonPrimitive?.doubleOrNull==0.0
-                }) ApiQueue.block(QuotaPlanner.DAY,"Подтверждённый дневной предел; задача сохранена")
+                val permanentQuota=code==429 && GeminiRetryPolicy.permanentQuota(body)
+                if(permanentQuota) ApiQueue.block(QuotaPlanner.DAY,"Подтверждённый дневной предел; задача сохранена")
                 val hint = when (code) {
                     429 -> AgentPolicy.quotaHint(body)
                     401, 403 -> "Проверьте API-ключ, доступ к модели и регион."
@@ -63,7 +64,7 @@ class GeminiApi(private val key: String, private val status: (String) -> Unit = 
                     503 -> "Сервис временно недоступен."
                     else -> "Ошибка API."
                 }
-                error("Gemini HTTP $code: $hint")
+                throw ProviderHttpFailure(code,retryAfter,permanentQuota,"Gemini HTTP $code: $hint")
             }
         }
     }

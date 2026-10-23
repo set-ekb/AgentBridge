@@ -59,16 +59,37 @@ object ToolRegistry {
     }
 
     /**
-     * Android inspection tools that OpenCode may use alongside its OWN native
-     * bash/read/edit/web tools. No tapping, typing, clipboard, browser JS,
-     * screenshots, notifications, shell or privileged Android actions here.
+     * OpenCode keeps its native tools (bash/read/edit/Git/web). This MCP endpoint
+     * adds Android UI control without exposing run_script, browser JavaScript,
+     * cookie mutation, arbitrary intents or the owner-only /mcp credential.
+     * The paired token should be protected: UI actions can change device state.
      */
-    fun registerOpenCodeReadOnly(server: Server) {
+    fun registerOpenCodeTools(server: Server) {
         registerGetActiveWindowInfo(server)
         registerGetUiTree(server)
         registerFindNodes(server)
         registerListApps(server)
         registerDiagnosticAnalysis(server)
+        registerGetScreenshot(server)
+        registerLaunchApp(server)
+        registerOpenUrl(server)
+        registerGlobalAction(server)
+        registerTapNode(server)
+        registerTapCoords(server)
+        registerLongPressNode(server)
+        registerSwipe(server)
+        registerTypeText(server)
+        registerClearText(server)
+        registerScrollToText(server)
+        registerWaitForNode(server)
+        registerWaitForWindow(server)
+        registerWaitForIdle(server)
+        registerSendKeyEvents(server)
+        registerGetNotifications(server)
+        registerBrowserNavigate(server)
+        registerBrowserInfo(server)
+        registerBrowserHtml(server)
+        registerBrowserScreenshot(server)
     }
 
     fun registerAll(server: Server) {

@@ -380,10 +380,39 @@ open class PanelActivity: AppCompatActivity() {
             } }.also { editable.add(it) }
             label("Ключи шифруются отдельно. API оплачивается отдельно от подписок. Экран и разрешённая память передаются выбранному провайдеру; автоматического перехода к другому провайдеру нет.",12)
             }
-            section("OpenCode · Termux", "Сопряжение с локальным сервером · только чтение") {
+            section("OpenCode · Termux", "Запуск и защищённое подключение") {
                 label("Нужен небольшой шлюз в Termux на 127.0.0.1:4097. Пароль OpenCode не передаётся в приложение. Здесь хранится отдельный ключ сопряжения.",11)
                 val pairing = input("Новый ключ сопряжения из Termux",password=true)
                 val linkState = label("Связь с OpenCode ещё не проверялась",12)
+                var startingOpenCode = false
+                button("Запустить OpenCode и коннектор") {
+                    if (!startingOpenCode) action {
+                        require(prefs.keyFor("opencode_link").matches(Regex("[A-Za-z0-9_-]{20,128}"))) {
+                            "Сначала подготовьте Termux и сохраните ключ сопряжения"
+                        }
+                        if (checkSelfPermission(OpenCodeLauncher.PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+                            requestPermissions(arrayOf(OpenCodeLauncher.PERMISSION), 4097)
+                            linkState.text="Разрешите запуск команд в Termux и нажмите кнопку ещё раз"
+                        } else {
+                            startingOpenCode = true
+                            try {
+                                OpenCodeLauncher.start(this@PanelActivity)
+                                linkState.text="Запуск OpenCode и коннектора…"
+                                var ready: OpenCodeLocalLink.Status? = null
+                                for (attempt in 1..20) {
+                                    delay(2000)
+                                    try {
+                                        val checked = OpenCodeLocalLink.check(prefs.keyFor("opencode_link"))
+                                        if (checked.healthy) { ready=checked; break }
+                                    } catch (e: CancellationException) { throw e }
+                                    catch (_: Exception) { /* Readiness, not command delivery, confirms startup. */ }
+                                }
+                                linkState.text=ready?.let { "OpenCode ${it.version} · коннектор доступен. Задания не запускались." }
+                                    ?: "Готовность не подтверждена. Откройте Termux: проверьте скрипт запуска и allow-external-apps=true."
+                            } finally { startingOpenCode=false }
+                        }
+                    }
+                }
                 button("Сохранить ключ связи") {
                     action {
                         val value = pairing.text.toString().trim()
@@ -406,7 +435,7 @@ open class PanelActivity: AppCompatActivity() {
                         }
                     }
                 }
-                label("Этап 1: проверка статуса. Управление заданиями и Android-инструментами пока не подключено.",11)
+                label("Первичная подготовка — в Termux. Запуск команд требует отдельного разрешения Android и allow-external-apps=true в Termux. Кнопка запускает сервер и шлюз с приёмом заданий; сами задания отправляются только кнопкой «Выполнить через OpenCode». После перезагрузки нажмите запуск снова. Готовность сервера не подтверждает подключение Android MCP.",11)
             }
             section("Квоты API", "Лимиты, очередь, резерв запросов") {
             label("Квоты задаются для выбранной модели и группы проекта. Ноль означает неизвестный лимит; серверные ограничения действуют всегда. TPM оценивается консервативно до ответа, RPD — по скользящим 24 часам.",12)

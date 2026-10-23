@@ -1,31 +1,41 @@
 {
-  "version": "0.8.0-local",
-  "versionCode": 30,
-  "date": "2026-10-19",
-  "state": "REVIEW",
-  "base": "AgentBridge-0.7.0-source.zip",
-  "requirements": "Drive project card sections 14-19; architecture version 4",
+  "version": "0.8.12-local",
+  "versionCode": 42,
+  "date": "2026-10-23",
+  "status": "REVIEW",
+  "branch": "fix/stabilize-provider-diagnostics",
+  "build_source_commit": "8a91afd6c4db358dc1828d7759b9015b7da3236f",
+  "scope": "User-invoked OpenCode and connector startup; includes previous provider stabilization",
+  "workflow_run": 39839017625,
+  "artifact_id": 12452991052,
+  "artifact_zip_sha256": "sha256:cd540c7a1604b3aab44020303fd6edd753615e9dfa9d73e213749e07b089f557",
   "checks": {
-    "gradle": "SUCCESS",
-    "unit_tests": 91,
-    "failures": 0,
-    "errors": 0,
-    "lint_errors": 0,
-    "lint_warnings": 70,
-    "apk_signature": "v3 verified",
-    "same_personal_certificate_as_0_5_7": true,
-    "zipalign_16k_4bytes": true,
-    "devices": 0,
-    "device_test": "NOT_RUN",
-    "live_api_test": "NOT_RUN"
+    "android_unit_tests": "PASS",
+    "assemble_debug": "PASS",
+    "assemble_release": "PASS",
+    "pinned_signing_certificate": "PASS",
+    "apk_signatures": "PASS",
+    "python_opencode_tests": {
+      "tests": 15,
+      "failures": 0
+    },
+    "git_diff_check": "PASS",
+    "release_publication": "SKIPPED"
   },
-  "certificate_sha256": "7c647f03e0bf659557deb182c609ebf6419466b98daa607c793be3a0e068e775",
-  "apk_sha256": "024d7ded6bf97e1884119779bbcbf8ef53738eee0939d8f3a5dc6b462498fbd3",
-  "limitations": [
-    "No device/Keystore/SQLite migration/UI/voice test in this environment",
-    "No real provider keys; API regression tests use deterministic fake exchanges",
-    "No full semantic high-risk validator, sync or continuous listening",
-    "Conservative estimated input TPM; rolling 24h RPD; no cross-device quota coordination"
+  "historical_lint": {
+    "version": "0.8.11 stabilization",
+    "errors": 0,
+    "warnings": 78,
+    "current_full_lint_rerun": false
+  },
+  "not_verified": [
+    "Termux RUN_COMMAND permission and readiness UI on the owner's phone",
+    "Actual OpenCode startup, persistence under Android background restrictions, and Android MCP connectivity",
+    "Active-window/list_apps repetition from latest phone log remains unresolved; not fixed in 0.8.12",
+    "Actual installed APK certificate compatibility and device acceptance"
   ],
-  "manual_acceptance": "README_0.8.0_RU.md"
+  "reports": [
+    "docs/OPENCODE_START_RU.md",
+    "docs/STABILIZATION_0811.md"
+  ]
 }
