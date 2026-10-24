@@ -20,8 +20,8 @@ class PortableTaskHandoffTest {
     @Test fun runtimeHandoffContainsJsonAndSafetyGate() {
         val task=TaskCheckpoint(goal="Continue",provider="claude",model="test")
         val prompt=task.handoff()
-        assertTrue(prompt.contains(""""schema_version":1"""))
-        assertTrue(prompt.contains(""""resume_requires_reverification":true"""))
+        assertTrue(prompt.contains("\"schema_version\":1"))
+        assertTrue(prompt.contains("\"resume_requires_reverification\":true"))
         assertTrue(prompt.contains("Не повторяй"))
     }
 }
