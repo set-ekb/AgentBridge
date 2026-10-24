@@ -5,7 +5,6 @@ import json
 import os
 import re
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
 
 VERSION = 1
@@ -21,11 +20,11 @@ def make(task_id,goal,next_step,state='PAUSED',verified=None,constraints=None):
     if not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',task_id) or state not in STATES:
         raise ValueError('Invalid task id/state')
     return {'schema_version':VERSION,'task_id':task_id,'goal':safe_text(goal),
-            'state':state,'verified_results':[safe_text(v) for v in (verified or [])],
-            'constraints':[safe_text(v) for v in (constraints or [])],
-            'next_step':safe_text(next_step),
-            'updated_at':datetime.now(timezone.utc).isoformat(),
-            'resume_requires_reverification':True,'source':'local_handoff'}
+            'state':state,'task_revision':1,'step':0,'previous_provider':'external',
+            'previous_model':'external','conditions':'\\n'.join(safe_text(v) for v in (constraints or [])),
+            'plan_summary':safe_text(next_step),'question':'','active_package_at_checkpoint':'',
+            'last_tool':'','last_action':'','observation':'\\n'.join(safe_text(v) for v in (verified or [])),
+            'action_may_have_occurred':False,'resume_requires_reverification':True}
 
 def save(path,record):
     p=Path(path)
@@ -48,10 +47,21 @@ def read(path):
     d=json.loads(Path(path).read_text(encoding='utf-8'))
     if not isinstance(d,dict) or d.get('schema_version')!=VERSION:
         raise ValueError('Unsupported checkpoint schema')
-    result=make(d['task_id'],d['goal'],d['next_step'],d['state'],
-                d.get('verified_results'),d.get('constraints'))
-    result['updated_at']=d['updated_at']
-    return result
+    expected=set(make('test','test','test').keys())
+    if set(d)!=expected or d.get('resume_requires_reverification') is not True:
+        raise ValueError('Invalid checkpoint shape or unsafe resume flag')
+    if not isinstance(d['task_revision'],int) or d['task_revision']<1:
+        raise ValueError('Invalid revision')
+    if not isinstance(d['step'],int) or d['step']<0:
+        raise ValueError('Invalid step')
+    if not isinstance(d['action_may_have_occurred'],bool):
+        raise ValueError('Invalid action flag')
+    for field in expected-{'schema_version','task_revision','step',
+                           'action_may_have_occurred','resume_requires_reverification'}:
+        safe_text(d[field])
+    if not re.fullmatch(r'[A-Za-z0-9._-]{1,100}',d['task_id']) or d['state'] not in STATES:
+        raise ValueError('Invalid task id/state')
+    return d
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
