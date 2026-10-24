@@ -89,6 +89,33 @@ class TaskTests(unittest.TestCase):
         with self.assertRaises(module.TaskFailure):
             self.tasks.create("../bad", "x")
 
+    def test_long_wait_returns_terminal_and_never_reexecutes(self):
+        from http.server import ThreadingHTTPServer
+        from threading import Thread
+        self.tasks.create(TASK, "Проверь файл")
+        self.api.incomplete = False
+        server = ThreadingHTTPServer(("127.0.0.1", 0),
+            gateway.handler_factory("secret-pair", 4096, "server-pass", self.tasks))
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}/tasks/{TASK}/wait"
+            request = Request(base + "?timeout=1",
+                headers={"Authorization": "Bearer secret-pair"})
+            with urlopen(request, timeout=5) as response:
+                result = json.load(response)
+            self.assertEqual(result["state"], "done")
+            self.assertEqual(result["answer"], "Итог готов")
+            self.assertEqual(self.api.prompt_count, 1)
+            with self.assertRaises(HTTPError) as exc:
+                urlopen(Request(base + "?timeout=200",
+                    headers={"Authorization": "Bearer secret-pair"}), timeout=5)
+            self.assertEqual(exc.exception.code, 400)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=2)
+
     def test_gateway_refuses_post_without_opt_in(self):
         from http.server import ThreadingHTTPServer
         from threading import Thread
