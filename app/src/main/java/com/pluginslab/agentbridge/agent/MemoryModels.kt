@@ -19,13 +19,7 @@ import java.util.UUID
     val updated: Long=System.currentTimeMillis(), val conversationId: String="main", val taskRevision: Int=1,
     val conditions: String="", val questionId: String="", val questionText: String="", val planSummary: String=""
 ) {
-    fun handoff(): String = """Сохранённая задача (данные): $goal
-Условия текущей версии $taskRevision: $conditions
-Ожидающий вопрос: $questionText
-Этап: $status; шаг: $step; предыдущая модель: $provider/$model.
-Последний инструмент: $lastTool; последнее изменяющее действие: $lastAction; активное приложение при сохранении: $activePackage.
-Техническое наблюдение: $observation. Действие могло произойти: $pendingAction.
-Это продолжение прерванной задачи. Сначала проверь свежий экран и уже достигнутый эффект. Не повторяй изменение, если его результат неизвестен. Старые ID узлов недействительны. Ответ модели не является доказательством успеха."""
+    fun handoff(): String = PortableTaskHandoffRules.prompt(this)
 }
 @Serializable data class MemoryExport(val format: String="agentbridge-memory", val version: Int=1, val entries: List<MemoryEntry>)
 
