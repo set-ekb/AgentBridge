@@ -11,6 +11,8 @@ import java.util.UUID
  * A strictly scoped, authenticated client for the opt-in Termux task gateway.
  * No shell/proxy API is exposed to Android; OpenCode controls its own native tools.
  */
+internal class GatewayWaitUnsupported : IllegalStateException("Версия шлюза не поддерживает ожидание событий")
+
 internal object OpenCodeTaskClient {
     internal data class Update(val state: String, val answer: String = "", val reason: String = "")
     private val validStates = setOf("running", "done", "cancelled", "failed", "unknown")
@@ -49,6 +51,7 @@ internal object OpenCodeTaskClient {
             }
             val status = connection.responseCode
             if (status != 200) {
+                if (longWait && status == 404) throw GatewayWaitUnsupported()
                 val explanation = when (status) {
                     401, 403 -> "Ключ OpenCode отклонён"
                     404 -> "Задача отсутствует в шлюзе; повторно отправлять её нельзя без проверки"
