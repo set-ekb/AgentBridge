@@ -20,6 +20,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
+import time
+from urllib.parse import urlsplit, parse_qs
 from opencode_task_bridge import TaskManager, OpenCodeApi, TaskFailure
 
 CONFIG = Path.home() / ".config" / "agentbridge-opencode"
@@ -103,6 +105,29 @@ def handler_factory(pairing_token: str, opencode_port: int, password: str, tasks
                 return
             if self.path == "/status":
                 self.respond(200, sanitized_status(opencode_port, password))
+                return
+            parsed = urlsplit(self.path)
+            wait_match = re.fullmatch(r"/tasks/([a-f0-9-]{36})/wait", parsed.path)
+            if tasks is not None and wait_match:
+                params = parse_qs(parsed.query)
+                if set(params) != {"timeout"} or len(params["timeout"]) != 1:
+                    self.respond(400, {"error": "invalid_timeout"})
+                    return
+                try:
+                    timeout = int(params["timeout"][0])
+                    if not 1 <= timeout <= 20:
+                        raise ValueError("timeout out of range")
+                    deadline = time.monotonic() + timeout
+                    while True:
+                        current = tasks.status(wait_match.group(1))
+                        if current["state"] != "running" or time.monotonic() >= deadline:
+                            self.respond(200, current)
+                            return
+                        time.sleep(min(2.0, max(0, deadline - time.monotonic())))
+                except (ValueError, TypeError):
+                    self.respond(400, {"error": "invalid_timeout"})
+                except TaskFailure as exc:
+                    self.task_error(exc)
                 return
             match = re.fullmatch(r"/tasks/([a-f0-9-]{36})", self.path)
             if tasks is not None and match:
