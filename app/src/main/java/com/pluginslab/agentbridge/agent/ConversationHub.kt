@@ -313,9 +313,27 @@ object ConversationHub {
                         }
                     }
                     updateOpenCode(task.copy(status="RUNNING"),"OpenCode · выполняет задачу")
-                    repeat(900) {
+                    val pollDeadline=android.os.SystemClock.elapsedRealtime()+30*60*1000L
+                    var runningChecks=0
+                    var transientDisconnects=0
+                    while(android.os.SystemClock.elapsedRealtime()<pollDeadline) {
                         currentCoroutineContext().ensureActive()
-                        val update=OpenCodeTaskClient.poll(id,token)
+                        val update=try {
+                            OpenCodeTaskClient.poll(id,token)
+                        } catch(e: java.net.ConnectException) {
+                            transientDisconnects++
+                            if(transientDisconnects>=3) throw e
+                            refresh("OpenCode · связь потеряна; сверяю тот же ID",task)
+                            delay(5000L)
+                            continue
+                        } catch(e: java.net.SocketTimeoutException) {
+                            transientDisconnects++
+                            if(transientDisconnects>=3) throw e
+                            refresh("OpenCode · ожидание шлюза; повторный запуск запрещён",task)
+                            delay(5000L)
+                            continue
+                        }
+                        transientDisconnects=0
                         when(update.state) {
                             "done" -> {
                                 val answer=update.answer.ifBlank { "OpenCode завершил сессию без текстового отчёта." }
@@ -333,7 +351,10 @@ object ConversationHub {
                                 return@launch
                             }
                         }
-                        delay(2000)
+                        runningChecks++
+                        val now=android.os.SystemClock.elapsedRealtime()
+                        val wait=SupervisorPolicy.decide("running",true,now,now,runningChecks).nextPollInMs ?: 30000L
+                        delay(wait.coerceAtMost((pollDeadline-now).coerceAtLeast(1L)))
                     }
                     updateOpenCode(task.copy(status="UNKNOWN",observation="Истекло время ожидания ответа; сессия могла продолжить работу."),
                         "OpenCode · превышено время ожидания")
