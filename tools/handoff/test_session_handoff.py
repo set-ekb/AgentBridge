@@ -9,12 +9,20 @@ class HandoffTests(unittest.TestCase):
             p=Path(d)/'checkpoint.json'
             save(p,make('task-1','Fix Bridge','Check UI',verified=['Build passed']))
             self.assertTrue(read(p)['resume_requires_reverification'])
-            self.assertEqual(read(p)['verified_results'],['Build passed'])
+            self.assertEqual(read(p)['observation'],'Build passed')
+            self.assertEqual(read(p)['plan_summary'],'Check UI')
             self.assertEqual(p.stat().st_mode & 0o777,0o600)
     def test_reject_secret(self):
         with self.assertRaises(ValueError): make('task-1','Bearer abc','Continue')
     def test_reject_state(self):
         with self.assertRaises(ValueError): make('task-1','Goal','Continue','UNKNOWN')
+    def test_reject_unsafe_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'x.json'
+            record=make('task-1','Goal','Check UI')
+            record['resume_requires_reverification']=False
+            save(p,record)
+            with self.assertRaises(ValueError): read(p)
     def test_schema(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'x.json'
