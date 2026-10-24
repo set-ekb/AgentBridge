@@ -33,11 +33,11 @@ internal object OpenCodeTaskClient {
         require(token.matches(Regex("[A-Za-z0-9_-]{20,128}"))) { "Сохраните ключ сопряжения OpenCode" }
     }
 
-    private suspend fun request(path: String, token: String, payload: JsonObject? = null): Update = withContext(Dispatchers.IO) {
+    private suspend fun request(path: String, token: String, payload: JsonObject? = null, longWait: Boolean = false): Update = withContext(Dispatchers.IO) {
         val connection = URL(base + path).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 3000
-            connection.readTimeout = 16000
+            connection.readTimeout = if (longWait) 25000 else 16000
             connection.instanceFollowRedirects = false
             connection.requestMethod = if (payload == null) "GET" else "POST"
             connection.setRequestProperty("Authorization", "Bearer $token")
@@ -75,6 +75,12 @@ internal object OpenCodeTaskClient {
     suspend fun poll(id: String, token: String): Update {
         validate(id, token)
         return request("/tasks/$id", token)
+    }
+
+    /** A long-held HTTP read in Dispatchers.IO, not a model call or rapid UI polling. */
+    suspend fun waitForChange(id: String, token: String): Update {
+        validate(id, token)
+        return request("/tasks/$id/wait?timeout=20", token, longWait = true)
     }
 
     suspend fun abort(id: String, token: String): Update {
