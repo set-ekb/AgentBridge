@@ -316,10 +316,17 @@ object ConversationHub {
                     val pollDeadline=android.os.SystemClock.elapsedRealtime()+30*60*1000L
                     var runningChecks=0
                     var transientDisconnects=0
+                    var longWaitSupported=true
                     while(android.os.SystemClock.elapsedRealtime()<pollDeadline) {
                         currentCoroutineContext().ensureActive()
                         val update=try {
-                            OpenCodeTaskClient.poll(id,token)
+                            if(longWaitSupported) {
+                                try { OpenCodeTaskClient.waitForChange(id,token) }
+                                catch (_: GatewayWaitUnsupported) {
+                                    longWaitSupported=false
+                                    OpenCodeTaskClient.poll(id,token)
+                                }
+                            } else OpenCodeTaskClient.poll(id,token)
                         } catch(e: java.net.ConnectException) {
                             transientDisconnects++
                             if(transientDisconnects>=3) throw e
@@ -352,9 +359,13 @@ object ConversationHub {
                             }
                         }
                         runningChecks++
-                        val now=android.os.SystemClock.elapsedRealtime()
-                        val wait=SupervisorPolicy.decide("running",true,now,now,runningChecks).nextPollInMs ?: 30000L
-                        delay(wait.coerceAtMost((pollDeadline-now).coerceAtLeast(1L)))
+                        // Long-poll already waits in Termux without consuming model tokens.
+                        // Legacy gateways fall back to the bounded supervisor interval.
+                        if(!longWaitSupported) {
+                            val now=android.os.SystemClock.elapsedRealtime()
+                            val wait=SupervisorPolicy.decide("running",true,now,now,runningChecks).nextPollInMs ?: 30000L
+                            delay(wait.coerceAtMost((pollDeadline-now).coerceAtLeast(1L)))
+                        }
                     }
                     updateOpenCode(task.copy(status="UNKNOWN",observation="Истекло время ожидания ответа; сессия могла продолжить работу."),
                         "OpenCode · превышено время ожидания")
