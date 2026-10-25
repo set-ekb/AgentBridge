@@ -22,6 +22,7 @@ object ConversationHub {
     @Volatile private var openCodeTaskId: String? = null
     /** Explicit owner stop only; service shutdown and pause must not abort Termux. */
     private val openCodeStopRequests=mutableSetOf<String>()
+    private val openCodePauseRequests=mutableSetOf<String>()
     fun isOpenCodeObserving(id: String): Boolean = synchronized(jobLock) { openCodeTaskId==id }
     private var context: Context?=null
     private var store: MemoryStore?=null
@@ -52,7 +53,7 @@ object ConversationHub {
     fun localCancel(app: Context) = synchronized(intakeLock) {
         val task=currentTask()
         val observerId=synchronized(jobLock) {
-            openCodeTaskId?.also { openCodeStopRequests.add(it) }
+            openCodeTaskId?.also { openCodePauseRequests.remove(it);openCodeStopRequests.add(it) }
         }
         AgentRuntime.cancel()
         epoch=maxOf(epoch,AgentPrefs(app).conversationEpoch)+1;AgentPrefs(app).conversationEpoch=epoch
@@ -77,7 +78,10 @@ object ConversationHub {
     fun localPause(app: Context) = synchronized(intakeLock) {
         AgentRuntime.pause()
         epoch=maxOf(epoch,AgentPrefs(app).conversationEpoch)+1;AgentPrefs(app).conversationEpoch=epoch
-        synchronized(jobLock) { jobs.values.forEach { it.cancel() } }
+        synchronized(jobLock) {
+            openCodeTaskId?.let { openCodePauseRequests.add(it) }
+            jobs.values.forEach { it.cancel() }
+        }
         store?.tasks()?.filter { it.status=="QUEUED" && it.provider!="opencode" }?.forEach {
             store?.checkpoint(it.copy(status="PAUSED",updated=System.currentTimeMillis()))
         }
@@ -147,7 +151,11 @@ object ConversationHub {
                             reply(if(task?.provider=="opencode") "Запрос остановки OpenCode принят. До подтверждения сервера выполнение может продолжаться; проверь статус задачи." else "Остановлено. Новых действий не будет; уже выполненные не отменяются.",message,"control")
                         }
                         OwnerIntent.PAUSE -> {
-                            AgentRuntime.pause();reply(if(task==null || IntentRules.isTerminal(task.status)) "Сейчас нет активной задачи." else "Пауза. Для продолжения скажи «продолжай».",message,"control")
+                            AgentRuntime.pause();reply(when {
+                                task==null || IntentRules.isTerminal(task.status) -> "Сейчас нет активной задачи."
+                                task.provider=="opencode" -> "Наблюдение приостановлено. OpenCode в Termux может продолжать работу; «продолжай» сверит тот же ID."
+                                else -> "Пауза. Для продолжения скажи «продолжай»."
+                            },message,"control")
                         }
                         OwnerIntent.RESUME -> if(active) reply("Задача уже выполняется.",message)
                         else if(task?.status=="WAIT_USER") reply("Сначала ответь на ожидающий вопрос: "+task.questionText,message)
@@ -410,13 +418,18 @@ object ConversationHub {
                 } catch(e: CancellationException) {
                     // Coroutine cancellation is also caused by PAUSE and service lifecycle.
                     // Only the owner's explicit STOP is allowed to call OpenCode abort.
-                    val ownerStop=synchronized(jobLock) { openCodeStopRequests.remove(id) }
+                    val (ownerStop,ownerPaused)=synchronized(jobLock) {
+                        Pair(openCodeStopRequests.remove(id),openCodePauseRequests.remove(id))
+                    }
                     withContext(NonCancellable) {
                         val last=db().tasks().firstOrNull { it.id==id } ?: task
                         if(last.status !in setOf("COMPLETE","FAILED","CANCELLED")) {
                             if(OpenCodeLifecyclePolicy.abortRemote(
-                                if(ownerStop) OpenCodeLifecyclePolicy.Interruption.OWNER_STOP
-                                else OpenCodeLifecyclePolicy.Interruption.OBSERVER_CLOSED
+                                when {
+                                    ownerStop -> OpenCodeLifecyclePolicy.Interruption.OWNER_STOP
+                                    ownerPaused -> OpenCodeLifecyclePolicy.Interruption.OBSERVATION_PAUSED
+                                    else -> OpenCodeLifecyclePolicy.Interruption.OBSERVER_CLOSED
+                                }
                             )) {
                                 val stopped=runCatching { OpenCodeTaskClient.abort(id,token).state=="cancelled" }.getOrDefault(false)
                                 updateOpenCode(last.copy(status=if(stopped) "CANCELLED" else "STOP_UNCONFIRMED",
@@ -424,8 +437,9 @@ object ConversationHub {
                                     if(stopped) "OpenCode · остановлен" else "OpenCode · остановка не подтверждена")
                             } else {
                                 updateOpenCode(last.copy(status=OpenCodeLifecyclePolicy.afterPause(last.status),
-                                    observation="Наблюдение закрыто; OpenCode мог продолжить работу. Для сверки используй тот же ID."),
-                                    "OpenCode · наблюдение остановлено, задача не отменена")
+                                    observation=if(ownerPaused) "Пауза наблюдения. OpenCode может продолжать работу; используй прежний ID."
+                                        else "Наблюдатель закрыт. OpenCode может продолжать работу; используй прежний ID."),
+                                    if(ownerPaused) "OpenCode · наблюдение на паузе" else "OpenCode · наблюдатель закрыт, задача не отменена")
                             }
                         }
                     }
@@ -433,7 +447,7 @@ object ConversationHub {
                     updateOpenCode(task.copy(status="UNKNOWN",observation="Не удалось получить достоверный результат. Повторно задачу не отправлять: "+e.javaClass.simpleName),
                         "OpenCode · состояние требует проверки")
                 } finally {
-                    synchronized(jobLock) { jobs.remove("opencode:$id");openCodeStopRequests.remove(id);openCodeTaskId=null }
+                    synchronized(jobLock) { jobs.remove("opencode:$id");openCodeStopRequests.remove(id);openCodePauseRequests.remove(id);openCodeTaskId=null }
                     refresh()
                     if(completed) {
                         db().tasks().lastOrNull { it.status=="QUEUED" && it.provider!="opencode" }?.let { runTask(it) }
