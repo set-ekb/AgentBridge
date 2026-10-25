@@ -14,7 +14,8 @@ class OpenCodeSafetyPolicyTest {
         assertEquals("QUEUED", OpenCodeLifecyclePolicy.afterPause("QUEUED"))
         assertTrue(OpenCodeLifecyclePolicy.mayDispatch("QUEUED"))
         for (status in listOf("RUNNING", "UNKNOWN", "STOP_REQUESTED", "STOP_UNCONFIRMED", "DISPATCHING")) {
-            assertEquals("UNKNOWN", OpenCodeLifecyclePolicy.afterPause(status))
+            assertEquals("OBSERVATION_PAUSED", OpenCodeLifecyclePolicy.afterPause(status))
+            assertEquals("UNKNOWN", OpenCodeLifecyclePolicy.afterObserverClosed(status))
             assertFalse(OpenCodeLifecyclePolicy.mayDispatch(status))
         }
     }
