@@ -13,6 +13,21 @@ class MemoryRulesTest {
         assertEquals(listOf(core),MemoryRules.select(listOf(local,pending,core),"задача",null,true))
         assertTrue(MemoryRules.select(listOf(local,pending,core),"задача",null,false).contains(local))
     }
+    @Test fun allRemoteProvidersExcludePrivateEntriesAndCredentialText() {
+        val approved=MemoryEntry(id="approved",title="Разрешено",content="Рабочие заметки",pinned=true)
+        val privateEntry=MemoryEntry(id="private",title="Личное",content="Личный контекст",pinned=true,isPrivate=true)
+        val localOnly=MemoryEntry(id="local",title="Локальное",content="Только на телефоне",pinned=true,cloudAllowed=false)
+        val credential=MemoryEntry(id="credential",title="Токен",content="password=should-not-leak",pinned=true)
+        val entries=listOf(approved,privateEntry,localOnly,credential)
+
+        val cloud=MemoryRules.select(entries,"задача",null,cloud=true,budget=12000)
+        assertEquals(listOf(approved),cloud)
+        val local=MemoryRules.select(entries,"задача",null,cloud=false,budget=12000)
+        assertTrue(local.contains(privateEntry))
+        assertTrue(local.contains(localOnly))
+        assertTrue(local.contains(credential))
+    }
+
     @Test fun correctAppAndRelevantProcedureAreSelected() {
         val app=MemoryEntry(kind="app_fact",title="Почта",content="Известный пакет",scope="app:example.mail")
         val unrelated=MemoryEntry(kind="procedure",title="Камера",content="Настройки фото")
