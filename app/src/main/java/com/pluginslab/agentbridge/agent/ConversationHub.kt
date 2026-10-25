@@ -339,8 +339,7 @@ object ConversationHub {
                     if(!resumed) {
                         // OpenCode may use a remote model: share only nonprivate,
                         // cloud-approved entries selected for this specific task.
-                        val memory=MemoryRules.select(db().entries().filter { !it.isPrivate },
-                            task.goal,null,true,3500)
+                        val memory=MemoryRules.select(db().entries(),task.goal,null,true,3500)
                         val knowledge=MemoryRules.context(memory).take(3600)
                         val prompt=OpenCodePromptPolicy.build(task.goal,knowledge)
                         updateOpenCode(task.copy(status="DISPATCHING"),"OpenCode · отправляю задачу")
