@@ -37,6 +37,9 @@ class AgentService: Service() {
         ConversationHub.onIdle={ stopSelf() }
         scope.launch {
             ConversationHub.init(applicationContext)
+            // Read-only recovery: observe previously dispatched OpenCode tasks by UUID.
+            // Never start a QUEUED task or override explicit observation pause.
+            ConversationHub.restoreOpenCodeObservation()
             ConversationHub.state.collectLatest { state ->
                 getSystemService(NotificationManager::class.java).notify(ID,notification(state.phase))
             }
