@@ -105,10 +105,11 @@ object AgentRuntime {
         val task=currentTask() ?: return false
         if(!ForegroundWaitRules.shouldWait(task,ActivityLaunch.activePackage(),context.packageName)) return false
         phase("Диалог / шторка открыт · UI-действия ждут целевой экран; разговор доступен")
+        val waitStart=SystemClock.elapsedRealtime()
         while(ForegroundWaitRules.shouldWait(task,ActivityLaunch.activePackage(),context.packageName)) {
             currentCoroutineContext().ensureActive()
             if(!gate.valid(task.id,version)) return true
-            delay(200)
+            delay(ForegroundWaitRules.nextCheckDelayMs(SystemClock.elapsedRealtime()-waitStart))
         }
         return true
     }
