@@ -107,7 +107,7 @@ object ConversationHub {
                     when(IntentRules.local(message.text,active,task?.status=="WAIT_USER")) {
                         OwnerIntent.CANCEL -> {
                             AgentRuntime.cancel()
-                            if(!active && task!=null && !IntentRules.isTerminal(task.status)) { val updated=task.copy(status="CANCELLED",questionId="",questionText="",updated=System.currentTimeMillis());db().checkpoint(updated);refresh("Задача отменена",updated) }
+                            if(!active && task!=null && task.provider!="opencode" && !IntentRules.isTerminal(task.status)) { val updated=task.copy(status="CANCELLED",questionId="",questionText="",updated=System.currentTimeMillis());db().checkpoint(updated);refresh("Задача отменена",updated) }
                             reply(if(task?.provider=="opencode") "Запрос остановки OpenCode принят. До подтверждения сервера выполнение может продолжаться; проверь статус задачи." else "Остановлено. Новых действий не будет; уже выполненные не отменяются.",message,"control")
                         }
                         OwnerIntent.PAUSE -> {
@@ -116,7 +116,7 @@ object ConversationHub {
                         OwnerIntent.RESUME -> if(active) reply("Задача уже выполняется.",message)
                         else if(task?.status=="WAIT_USER") reply("Сначала ответь на ожидающий вопрос: "+task.questionText,message)
                         else if(task?.provider=="opencode" && task.status in setOf("UNKNOWN","STOP_UNCONFIRMED","STOP_REQUESTED"))
-                            reply("OpenCode: результат или остановка не подтверждены. Проверь сессию в Termux; повторный запуск мог бы повторить действия.",message)
+                            startOpenCode(task.id)
                         else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED")) runTask(task,message.generation) else {
                             val pending=db().messages().lastOrNull { it.role=="user" && it.status=="INTERRUPTED" }
                             if(pending!=null) {
@@ -284,7 +284,7 @@ object ConversationHub {
         synchronized(jobLock) {
             if(openCodeTaskId!=null || AgentRuntime.state.value.running) return
             val task=db().tasks().firstOrNull { it.id==id && it.provider=="opencode" } ?: return
-            if(task.status in setOf("COMPLETE","CANCELLED","UNKNOWN","STOP_UNCONFIRMED","STOP_REQUESTED","FAILED")) return
+            if(task.status in setOf("COMPLETE","CANCELLED","FAILED")) return
             openCodeTaskId=id
             val job=scope.launch(start=CoroutineStart.LAZY) {
                 val token=runCatching { AgentPrefs(app()).keyFor("opencode_link") }.getOrDefault("")
@@ -309,10 +309,10 @@ object ConversationHub {
                         if(start.state=="unknown") {
                             updateOpenCode(task.copy(status="UNKNOWN",observation="Подтверждение отправки потеряно. Проверь OpenCode вручную: повторная отправка запрещена."),
                                 "OpenCode · состояние отправки неизвестно")
-                            return@launch
+                            // Continue with read-only reconciliation of this UUID.
                         }
                     }
-                    updateOpenCode(task.copy(status="RUNNING"),"OpenCode · выполняет задачу")
+                    refresh("OpenCode · сверяю сохранённый ID")
                     val pollDeadline=android.os.SystemClock.elapsedRealtime()+30*60*1000L
                     var runningChecks=0
                     var transientDisconnects=0
@@ -342,6 +342,7 @@ object ConversationHub {
                         }
                         transientDisconnects=0
                         when(update.state) {
+                            "running" -> updateOpenCode(task.copy(status="RUNNING"),"OpenCode · выполняет задачу")
                             "done" -> {
                                 val answer=update.answer.ifBlank { "OpenCode завершил сессию без текстового отчёта." }
                                 // Fixed message ID makes recovery idempotent.
@@ -351,9 +352,15 @@ object ConversationHub {
                                 completed=true
                                 return@launch
                             }
-                            "failed","unknown","cancelled" -> {
-                                val state=when(update.state) { "cancelled"->"CANCELLED";"unknown"->"UNKNOWN";else->"FAILED" }
-                                updateOpenCode(task.copy(status=state,observation=update.reason),
+                            "unknown" -> {
+                                updateOpenCode(task.copy(status="UNKNOWN",observation=update.reason),
+                                    "OpenCode · сверяю тот же ID; отправка запрещена")
+                                delay(5000L)
+                                continue
+                            }
+                            "failed","cancelled" -> {
+                                val state=if(update.state=="cancelled") "CANCELLED" else "FAILED"
+                                updateOpenCode(task.copy(status=state,answer=update.answer,observation=update.reason),
                                     "OpenCode · "+state)
                                 return@launch
                             }
