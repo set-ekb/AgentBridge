@@ -6,13 +6,15 @@ Only explicit owner-originated prompts, status and best-effort abort.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import re
 import tempfile
 import threading
-import urllib.error
-import urllib.request
+import time
+import socket
+from contextlib import contextmanager
 from pathlib import Path
 
 TASK_ID = re.compile(r"^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$")
@@ -26,11 +28,11 @@ class TaskFailure(Exception):
 
 class OpenCodeApi:
     def __init__(self, port: int, password: str):
-        self.base = f"http://127.0.0.1:{port}"
+        self.port = port
         credentials = base64.b64encode(("opencode:" + password).encode()).decode()
         self.authorization = "Basic " + credentials
 
-    def request(self, path: str, payload=None):
+    def request(self, path: str, payload=None, *, deadline=None):
         if not path.startswith("/") or "?" in path or ".." in path:
             raise TaskFailure("invalid_opencode_endpoint")
         headers = {"Authorization": self.authorization, "Accept": "application/json"}
@@ -38,16 +40,45 @@ class OpenCodeApi:
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
-        req = urllib.request.Request(self.base + path, data=data, headers=headers,
-                                     method="POST" if payload is not None else "GET")
+        deadline = min(deadline, time.monotonic() + 6) if deadline is not None else time.monotonic() + 6
+        connection = None
+        timer = None
         try:
-            with urllib.request.urlopen(req, timeout=12) as response:
+            timeout = deadline - time.monotonic()
+            if timeout <= 0:
+                raise TaskFailure("opencode_unavailable")
+            connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+            connection.connect()
+            sock = connection.sock
+            # A socket timeout alone is an inactivity limit: a slow header/body
+            # could exceed the poll budget. Shutdown this specific socket at
+            # the absolute deadline, including header and body reads.
+            def expire():
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TaskFailure("opencode_unavailable")
+            timer = threading.Timer(remaining, expire)
+            timer.daemon = True
+            timer.start()
+            connection.request("POST" if payload is not None else "GET", path, body=data, headers=headers)
+            with connection.getresponse() as response:
+                if not 200 <= response.status < 300:
+                    raise TaskFailure("opencode_unavailable")
                 raw = response.read(262145)
                 if len(raw) > 262144:
                     raise TaskFailure("opencode_response_too_large")
                 return json.loads(raw) if raw else None
-        except (OSError, ValueError, urllib.error.HTTPError) as exc:
+        except (OSError, ValueError, http.client.HTTPException) as exc:
             raise TaskFailure("opencode_unavailable") from exc
+        finally:
+            if timer is not None:
+                timer.cancel()
+            if connection is not None:
+                connection.close()
 
 
 class TaskManager:
@@ -86,6 +117,11 @@ class TaskManager:
             os.fsync(stream.fileno())
         try:
             os.replace(temp_path, path)
+            directory = os.open(self.root, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
             temp_path.unlink(missing_ok=True)
 
@@ -122,16 +158,36 @@ class TaskManager:
             self._put(record)
             return {"state": "running", "answer": ""}
 
-    def status(self, task_id: str):
-        with self.lock:
+    @contextmanager
+    def _status_lock(self, deadline):
+        acquired = self.lock.acquire() if deadline is None else self.lock.acquire(
+            timeout=max(0, deadline - time.monotonic()))
+        if not acquired:
+            raise TaskFailure("opencode_unavailable")
+        try:
+            yield
+        finally:
+            self.lock.release()
+
+    def _terminal(self, record, state, answer="", reason=""):
+        result = {"state": state, "answer": answer}
+        if reason:
+            result["reason"] = reason
+        record.update(state=state, result=result)
+        self._put(record)
+        return result
+
+    def status(self, task_id: str, *, deadline=None):
+        with self._status_lock(deadline):
             record = self._get(task_id)
             state = record.get("state")
-            if state in ("cancelled", "unknown"):
-                return {"state": state, "answer": "", "reason":
-                    "dispatch_unconfirmed" if state == "unknown" else ""}
+            if state in ("done", "failed", "cancelled"):
+                return record.get("result", {"state": state, "answer": ""})
             session = record["session"]
-            statuses = self.api.request("/session/status")
-            messages = self.api.request("/session/" + session + "/message")
+            if not isinstance(session, str) or not SESSION_ID.fullmatch(session):
+                raise TaskFailure("invalid_session_id")
+            statuses = self.api.request("/session/status", deadline=deadline)
+            messages = self.api.request("/session/" + session + "/message", deadline=deadline)
             if not isinstance(statuses, dict) or not isinstance(messages, list):
                 raise TaskFailure("invalid_opencode_status")
             latest = None
@@ -141,8 +197,12 @@ class TaskManager:
                 info = item["info"]
                 if info.get("role") == "assistant":
                     latest = item
+            parts = latest.get("parts") if latest else None
+            text = "\n".join(p["text"] for p in (parts if isinstance(parts, list) else [])
+                             if isinstance(p, dict) and p.get("type") == "text"
+                             and isinstance(p.get("text"), str))[-MAX_OUTPUT:]
             if latest is not None and isinstance(latest["info"].get("error"), dict):
-                return {"state": "failed", "answer": "", "reason": "opencode_response_error"}
+                return self._terminal(record, "failed", text, reason="opencode_response_error")
             session_status = statuses.get(session)
             busy = isinstance(session_status, dict) and session_status.get("type") != "idle"
             if latest is not None and not busy:
@@ -150,24 +210,29 @@ class TaskManager:
                 # An intermediate tool-call assistant message is NOT a
                 # completed task, even when the busy map briefly becomes empty.
                 if finish == "stop":
-                    parts = latest.get("parts")
-                    text = "\n".join(str(p.get("text")) for p in (parts if isinstance(parts, list) else [])
-                                     if isinstance(p, dict) and p.get("type") == "text" and isinstance(p.get("text"), str))
                     if text.strip():
-                        return {"state": "done", "answer": text[-MAX_OUTPUT:]}
-                    return {"state": "failed", "answer": "", "reason": "no_text_response"}
+                        return self._terminal(record, "done", text[-MAX_OUTPUT:])
+                    return self._terminal(record, "failed", reason="no_text_response")
+            if state in ("unknown", "dispatching"):
+                # A missing busy entry is not proof of admission or completion.
+                admitted = busy or any(isinstance(item, dict) and
+                    isinstance(item.get("info"), dict) and
+                    item["info"].get("role") == "user" for item in messages)
+                record["state"] = "running" if admitted else "unknown"
+                self._put(record)
+                if not admitted:
+                    return {"state": "unknown", "answer": "", "reason": "dispatch_unconfirmed"}
             return {"state": "running", "answer": ""}
 
     def cancel(self, task_id: str):
         with self.lock:
             record = self._get(task_id)
-            if record.get("state") == "cancelled":
-                return {"state": "cancelled", "confirmed": True}
+            if record.get("state") in ("done", "failed", "cancelled"):
+                return {**self.status(task_id), "confirmed": record["state"] == "cancelled"}
             session = record["session"]
             # Do not mark cancelled until OpenCode confirms abort.
             result = self.api.request("/session/" + session + "/abort", {})
             if result is not True:
                 raise TaskFailure("abort_unconfirmed")
-            record["state"] = "cancelled"
-            self._put(record)
+            self._terminal(record, "cancelled")
             return {"state": "cancelled", "confirmed": True}
