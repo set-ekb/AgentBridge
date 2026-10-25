@@ -11,6 +11,9 @@ import java.util.UUID
  * A strictly scoped, authenticated client for the opt-in Termux task gateway.
  * No shell/proxy API is exposed to Android; OpenCode controls its own native tools.
  */
+internal class GatewayWaitUnsupported : IllegalStateException("Версия шлюза не поддерживает ожидание событий")
+internal class GatewayTemporarilyUnavailable : IllegalStateException("OpenCode временно недоступен; повторить GET позже")
+
 internal object OpenCodeTaskClient {
     internal data class Update(val state: String, val answer: String = "", val reason: String = "")
     private val validStates = setOf("running", "done", "cancelled", "failed", "unknown")
@@ -33,11 +36,13 @@ internal object OpenCodeTaskClient {
         require(token.matches(Regex("[A-Za-z0-9_-]{20,128}"))) { "Сохраните ключ сопряжения OpenCode" }
     }
 
-    private suspend fun request(path: String, token: String, payload: JsonObject? = null): Update = withContext(Dispatchers.IO) {
-        val connection = URL(base + path).openConnection() as HttpURLConnection
+    internal suspend fun request(path: String, token: String, payload: JsonObject? = null, longWait: Boolean = false,
+        connect: (String) -> HttpURLConnection = { URL(it).openConnection() as HttpURLConnection }
+    ): Update = withContext(Dispatchers.IO) {
+        val connection = connect(base + path)
         try {
             connection.connectTimeout = 3000
-            connection.readTimeout = 16000
+            connection.readTimeout = if (longWait) 25000 else 16000
             connection.instanceFollowRedirects = false
             connection.requestMethod = if (payload == null) "GET" else "POST"
             connection.setRequestProperty("Authorization", "Bearer $token")
@@ -49,6 +54,8 @@ internal object OpenCodeTaskClient {
             }
             val status = connection.responseCode
             if (status != 200) {
+                if (longWait && status == 404) throw GatewayWaitUnsupported()
+                if (status in setOf(502,503,504)) throw GatewayTemporarilyUnavailable()
                 val explanation = when (status) {
                     401, 403 -> "Ключ OpenCode отклонён"
                     404 -> "Задача отсутствует в шлюзе; повторно отправлять её нельзя без проверки"
@@ -75,6 +82,12 @@ internal object OpenCodeTaskClient {
     suspend fun poll(id: String, token: String): Update {
         validate(id, token)
         return request("/tasks/$id", token)
+    }
+
+    /** A long-held HTTP read in Dispatchers.IO, not a model call or rapid UI polling. */
+    suspend fun waitForChange(id: String, token: String): Update {
+        validate(id, token)
+        return request("/tasks/$id/wait?timeout=15", token, longWait = true)
     }
 
     suspend fun abort(id: String, token: String): Update {

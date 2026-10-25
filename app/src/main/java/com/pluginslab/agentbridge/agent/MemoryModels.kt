@@ -46,7 +46,10 @@ object MemoryRules {
             return (if(e.pinned) 10000 else 0)+(if(e.kind=="core") 100 else 0)+
                 (if(!pkg.isNullOrBlank() && e.scope=="app:$pkg") 500 else 0)+words.count { text.contains(it) }*20
         }
-        val sorted=entries.filter { it.verification=="confirmed" && (!cloud || it.cloudAllowed) }
+        // Provider-agnostic privacy boundary: a remote model never receives
+        // locally private entries, cloud-denied content or obvious credentials.
+        val sorted=entries.filter { it.verification=="confirmed" && (!cloud ||
+            (it.cloudAllowed && !it.isPrivate && !secrets.containsMatchIn(it.title+" "+it.content))) }
             .filter { it.pinned || it.kind=="core" || score(it)>0 }
             .sortedWith(compareByDescending<MemoryEntry> { score(it) }.thenByDescending { it.updated })
         var left=budget.coerceAtLeast(0)

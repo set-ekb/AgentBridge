@@ -37,6 +37,9 @@ class AgentService: Service() {
         ConversationHub.onIdle={ stopSelf() }
         scope.launch {
             ConversationHub.init(applicationContext)
+            // Read-only recovery: observe previously dispatched OpenCode tasks by UUID.
+            // Never start a QUEUED task or override explicit observation pause.
+            ConversationHub.restoreOpenCodeObservation()
             ConversationHub.state.collectLatest { state ->
                 getSystemService(NotificationManager::class.java).notify(ID,notification(state.phase))
             }
@@ -49,9 +52,11 @@ class AgentService: Service() {
             .setContentTitle("AgentBridge · диалог").setContentText(if(task?.questionText?.isNotBlank()==true && !AgentPrefs(this).widgetPrivate) DisplayPrivacy.safe(task.questionText) else DisplayPrivacy.safe(text.take(220)))
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
         fun control(action: String,id: Int)=PendingIntent.getService(this,id,Intent(this,AgentService::class.java).setAction(action).putExtra("command_epoch",AgentPrefs(this).conversationEpoch).putExtra("command_id","notification:$action:${task?.id}:${task?.taskRevision}:${task?.status}:${AgentPrefs(this).conversationEpoch}"),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        if(AgentRuntime.state.value.running) builder.addAction(0,"Пауза",control(PAUSE,1))
-        else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED","WAIT_USER")) builder.addAction(0,"Продолжить",control(RESUME,2))
-        if(AgentRuntime.state.value.running || state.routing || task?.status=="WAIT_USER" || task?.provider=="opencode" && task.status in setOf("QUEUED","DISPATCHING","RUNNING","STOP_REQUESTED")) builder.addAction(0,"Стоп",control(CANCEL,3))
+        val observingOpenCode=task?.provider=="opencode" && ConversationHub.isOpenCodeObserving(task.id)
+        if(AgentRuntime.state.value.running || observingOpenCode) builder.addAction(0,"Пауза",control(PAUSE,1))
+        else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED","FAILED","WAIT_USER") && !observingOpenCode)
+            builder.addAction(0,if(task.provider=="opencode") "Проверить" else "Продолжить",control(RESUME,2))
+        if(AgentRuntime.state.value.running || state.routing || task?.status=="WAIT_USER" || task?.provider=="opencode" && task.status in setOf("QUEUED","DISPATCHING","RUNNING","STOP_REQUESTED","UNKNOWN","STOP_UNCONFIRMED")) builder.addAction(0,"Стоп",control(CANCEL,3))
         val question=task?.questionId.orEmpty()
         val token=if(question.isNotBlank()) question else state.messages.lastOrNull()?.id ?: "empty"
         val reply=PendingIntent.getService(this,4,Intent(this,AgentService::class.java).setAction(REPLY).putExtra("reply_token",token).putExtra("question_id",question),PendingIntent.FLAG_UPDATE_CURRENT or if(Build.VERSION.SDK_INT>=31) PendingIntent.FLAG_MUTABLE else 0)
