@@ -151,7 +151,7 @@ object ConversationHub {
                         }
                         OwnerIntent.RESUME -> if(active) reply("Задача уже выполняется.",message)
                         else if(task?.status=="WAIT_USER") reply("Сначала ответь на ожидающий вопрос: "+task.questionText,message)
-                        else if(task?.provider=="opencode" && task.status in setOf("UNKNOWN","STOP_UNCONFIRMED","STOP_REQUESTED"))
+                        else if(task?.provider=="opencode" && task.status !in setOf("COMPLETE","FAILED","CANCELLED"))
                             startOpenCode(task.id)
                         else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED")) runTask(task,message.generation) else {
                             val pending=db().messages().lastOrNull { it.role=="user" && it.status=="INTERRUPTED" }
