@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ForegroundWaitRulesTest {
+    @Test fun foregroundPollingBacksOffWhilePanelRemainsOpen() {
+        assertEquals(200L,ForegroundWaitRules.nextCheckDelayMs(0L))
+        assertEquals(200L,ForegroundWaitRules.nextCheckDelayMs(2999L))
+        assertEquals(750L,ForegroundWaitRules.nextCheckDelayMs(3000L))
+        assertEquals(750L,ForegroundWaitRules.nextCheckDelayMs(14999L))
+        assertEquals(2000L,ForegroundWaitRules.nextCheckDelayMs(15000L))
+        assertEquals(2000L,ForegroundWaitRules.nextCheckDelayMs(600000L))
+    }
+
     @Test fun openingChatWaitsForUiWithoutCancellingTask() {
         val task=TaskCheckpoint(goal="Read mail",provider="gemini",model="model",lastAction="launch_app",activePackage="example.mail")
         assertTrue(ForegroundWaitRules.shouldWait(task,"own.agent","own.agent"))
