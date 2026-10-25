@@ -12,6 +12,7 @@ import java.util.UUID
  * No shell/proxy API is exposed to Android; OpenCode controls its own native tools.
  */
 internal class GatewayWaitUnsupported : IllegalStateException("Версия шлюза не поддерживает ожидание событий")
+internal class GatewayTemporarilyUnavailable : IllegalStateException("OpenCode временно недоступен; повторить GET позже")
 
 internal object OpenCodeTaskClient {
     internal data class Update(val state: String, val answer: String = "", val reason: String = "")
@@ -54,6 +55,7 @@ internal object OpenCodeTaskClient {
             val status = connection.responseCode
             if (status != 200) {
                 if (longWait && status == 404) throw GatewayWaitUnsupported()
+                if (status in setOf(502,503,504)) throw GatewayTemporarilyUnavailable()
                 val explanation = when (status) {
                     401, 403 -> "Ключ OpenCode отклонён"
                     404 -> "Задача отсутствует в шлюзе; повторно отправлять её нельзя без проверки"
