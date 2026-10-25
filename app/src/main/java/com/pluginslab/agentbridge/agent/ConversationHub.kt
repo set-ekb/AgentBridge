@@ -24,6 +24,15 @@ object ConversationHub {
     private val openCodeStopRequests=mutableSetOf<String>()
     private val openCodePauseRequests=mutableSetOf<String>()
     fun isOpenCodeObserving(id: String): Boolean = synchronized(jobLock) { openCodeTaskId==id }
+
+    /** Restore GET-only observation after restart; never submit a stored prompt. */
+    fun restoreOpenCodeObservation(): Boolean {
+        val task=db().tasks().firstOrNull {
+            OpenCodeRecoveryPolicy.shouldObserveAfterRestart(it.provider,it.status)
+        } ?: return false
+        startOpenCode(task.id)
+        return isOpenCodeObserving(task.id)
+    }
     private var context: Context?=null
     private var store: MemoryStore?=null
     var onIdle: ()->Unit={}
@@ -70,7 +79,7 @@ object ConversationHub {
         // An observer may have disappeared after an Android process restart.
         // A direct owner stop must still reach the existing remote UUID, not POST a task.
         if(observerId==null && task?.provider=="opencode" &&
-            task.status in setOf("RUNNING","DISPATCHING","UNKNOWN","STOP_REQUESTED","STOP_UNCONFIRMED")) {
+            task.status in setOf("RUNNING","DISPATCHING","UNKNOWN","STOP_REQUESTED","STOP_UNCONFIRMED","OBSERVATION_PAUSED")) {
             stopDetachedOpenCode(task.id)
         }
     }
@@ -365,17 +374,19 @@ object ConversationHub {
                                     OpenCodeTaskClient.poll(id,token)
                                 }
                             } else OpenCodeTaskClient.poll(id,token)
-                        } catch(e: java.net.ConnectException) {
+                        } catch(e: java.io.IOException) {
                             transientDisconnects++
-                            if(transientDisconnects>=3) throw e
-                            refresh("OpenCode · связь потеряна; сверяю тот же ID",task)
-                            delay(5000L)
+                            if(transientDisconnects==1) {
+                                updateOpenCode(task.copy(status="UNKNOWN",
+                                    observation="Нет связи с Termux; продолжаю сверку того же ID."),
+                                    "OpenCode · ожидаю восстановления шлюза")
+                            }
+                            delay(OpenCodeRecoveryPolicy.reconnectDelayMs(transientDisconnects))
                             continue
-                        } catch(e: java.net.SocketTimeoutException) {
+                        } catch(e: GatewayTemporarilyUnavailable) {
                             transientDisconnects++
-                            if(transientDisconnects>=3) throw e
-                            refresh("OpenCode · ожидание шлюза; повторный запуск запрещён",task)
-                            delay(5000L)
+                            if(transientDisconnects==1) refresh("OpenCode · шлюз временно недоступен; тот же ID")
+                            delay(OpenCodeRecoveryPolicy.reconnectDelayMs(transientDisconnects))
                             continue
                         }
                         transientDisconnects=0
@@ -435,7 +446,8 @@ object ConversationHub {
                                     observation=if(stopped) "OpenCode подтвердил отмену" else "OpenCode НЕ подтвердил отмену; проверь сессию"),
                                     if(stopped) "OpenCode · остановлен" else "OpenCode · остановка не подтверждена")
                             } else {
-                                updateOpenCode(last.copy(status=OpenCodeLifecyclePolicy.afterPause(last.status),
+                                updateOpenCode(last.copy(status=if(ownerPaused) OpenCodeLifecyclePolicy.afterPause(last.status)
+                                        else OpenCodeLifecyclePolicy.afterObserverClosed(last.status),
                                     observation=if(ownerPaused) "Пауза наблюдения. OpenCode может продолжать работу; используй прежний ID."
                                         else "Наблюдатель закрыт. OpenCode может продолжать работу; используй прежний ID."),
                                     if(ownerPaused) "OpenCode · наблюдение на паузе" else "OpenCode · наблюдатель закрыт, задача не отменена")
@@ -463,7 +475,8 @@ object ConversationHub {
         val last=db().tasks().firstOrNull { it.id==task.id }
         // A late observer update cannot reopen a terminal task or erase STOP_REQUESTED.
         if(last?.status in setOf("COMPLETE","FAILED","CANCELLED") && last.status!=task.status) return@synchronized
-        if(last?.status in setOf("STOP_REQUESTED","STOP_UNCONFIRMED") && task.status=="RUNNING") return@synchronized
+        if(last?.status in setOf("STOP_REQUESTED","STOP_UNCONFIRMED") && task.status in setOf("RUNNING","UNKNOWN")) return@synchronized
+        if(last?.status=="OBSERVATION_PAUSED" && task.status in setOf("RUNNING","UNKNOWN")) return@synchronized
         val updated=task.copy(updated=System.currentTimeMillis())
         db().checkpoint(updated)
         refresh(message,updated)
