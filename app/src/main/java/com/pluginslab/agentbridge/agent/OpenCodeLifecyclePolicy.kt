@@ -9,6 +9,10 @@ internal object OpenCodeLifecyclePolicy {
 
     /** A queued task has not been dispatched, so it remains eligible for explicit start. */
     fun afterPause(previousStatus: String): String =
+        if (previousStatus == "QUEUED") "QUEUED" else "OBSERVATION_PAUSED"
+
+    /** Service shutdown is not an owner pause; it should be reconciled after restart. */
+    fun afterObserverClosed(previousStatus: String): String =
         if (previousStatus == "QUEUED") "QUEUED" else "UNKNOWN"
 
     /** Resuming a remote task always reconciles its UUID; never sends a second prompt. */
