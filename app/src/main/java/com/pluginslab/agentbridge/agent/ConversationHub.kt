@@ -474,7 +474,7 @@ object ConversationHub {
     private fun updateOpenCode(task: TaskCheckpoint, message: String) = synchronized(intakeLock) {
         val last=db().tasks().firstOrNull { it.id==task.id }
         // A late observer update cannot reopen a terminal task or erase STOP_REQUESTED.
-        if(last?.status in setOf("COMPLETE","FAILED","CANCELLED") && last.status!=task.status) return@synchronized
+        if(last?.status in setOf("COMPLETE","FAILED","CANCELLED") && last?.status!=task.status) return@synchronized
         if(last?.status in setOf("STOP_REQUESTED","STOP_UNCONFIRMED") && task.status in setOf("RUNNING","UNKNOWN")) return@synchronized
         if(last?.status=="OBSERVATION_PAUSED" && task.status in setOf("RUNNING","UNKNOWN")) return@synchronized
         val updated=task.copy(updated=System.currentTimeMillis())
