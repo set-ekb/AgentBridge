@@ -53,7 +53,7 @@ class AgentService: Service() {
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
         fun control(action: String,id: Int)=PendingIntent.getService(this,id,Intent(this,AgentService::class.java).setAction(action).putExtra("command_epoch",AgentPrefs(this).conversationEpoch).putExtra("command_id","notification:$action:${task?.id}:${task?.taskRevision}:${task?.status}:${AgentPrefs(this).conversationEpoch}"),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val observingOpenCode=task?.provider=="opencode" && ConversationHub.isOpenCodeObserving(task.id)
-        if(AgentRuntime.state.value.running) builder.addAction(0,"Пауза",control(PAUSE,1))
+        if(AgentRuntime.state.value.running || observingOpenCode) builder.addAction(0,"Пауза",control(PAUSE,1))
         else if(task!=null && task.status !in setOf("COMPLETE","CANCELLED","FAILED","WAIT_USER") && !observingOpenCode)
             builder.addAction(0,if(task.provider=="opencode") "Проверить" else "Продолжить",control(RESUME,2))
         if(AgentRuntime.state.value.running || state.routing || task?.status=="WAIT_USER" || task?.provider=="opencode" && task.status in setOf("QUEUED","DISPATCHING","RUNNING","STOP_REQUESTED","UNKNOWN","STOP_UNCONFIRMED")) builder.addAction(0,"Стоп",control(CANCEL,3))
