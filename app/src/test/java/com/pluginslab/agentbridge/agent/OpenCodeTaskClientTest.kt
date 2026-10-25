@@ -57,6 +57,17 @@ class OpenCodeTaskClientTest {
         }
     }
 
+    @Test fun server503MeansTemporaryOutageNotTaskFailure() = runBlocking {
+        val connection=FakeConnection(503)
+        try {
+            OpenCodeTaskClient.request("/tasks/example", "test",connect={ connection })
+            fail("Expected retryable gateway error")
+        } catch (_: GatewayTemporarilyUnavailable) {
+            assertEquals("GET",connection.requestMethod)
+            assertTrue(connection.disconnected)
+        }
+    }
+
     @Test fun missingTask404DoesNotImplyRetryOrSuccess() = runBlocking {
         try {
             OpenCodeTaskClient.request("/tasks/id", "test", connect={ FakeConnection(404) })
