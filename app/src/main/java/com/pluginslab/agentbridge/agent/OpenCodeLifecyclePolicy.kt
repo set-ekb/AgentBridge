@@ -13,7 +13,7 @@ internal object OpenCodeLifecyclePolicy {
 
     /** Service shutdown is not an owner pause; it should be reconciled after restart. */
     fun afterObserverClosed(previousStatus: String): String =
-        if (previousStatus == "QUEUED") "QUEUED" else "UNKNOWN"
+        if (previousStatus in setOf("QUEUED", "OBSERVATION_PAUSED")) previousStatus else "UNKNOWN"
 
     /** Resuming a remote task always reconciles its UUID; never sends a second prompt. */
     fun mayDispatch(previousStatus: String): Boolean = previousStatus == "QUEUED"
